@@ -9,11 +9,6 @@ typedef struct block {
     struct block *prev;
 } block_t;
 
-/* The head of our explicit free list.  Defined in ggc.c so that all
-   translation units share the same allocator state.  Previously this was
-   declared `static` in the header which created a separate `heap_head` for
-   each .c file that included <ggc.h>.  That meant user code and the allocator
-   were talking to different heaps! */
 extern block_t *heap_head;
 
 void *request_from_os(size_t size);

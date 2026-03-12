@@ -1,34 +1,13 @@
 #include "ggc.h"
-
-/* We don't need <unistd.h> on Windows and, in fact, the standard
-   MinGW headers don't declare sbrk at all which caused a compiler error.
-   Use conditional compilation to pull in the header only on POSIX systems. */
-#if !defined(_WIN32) && !defined(_WIN64)
 #include <unistd.h>
-#endif
 
-/* The allocator maintains a linked list of blocks.  The head of that list
-   was previously declared `static` in the header, which resulted in each
-   translation unit having its own separate `heap_head` variable.  Define it
-   once here so the state is truly shared. */
 block_t *heap_head = NULL;
 
-/* Request memory from the operating system.  On POSIX we use sbrk so that the
-   new memory is adjacent to our previous allocations.  On Windows (or any
-   other platform where sbrk isn't available) just fall back to malloc.  This
-   isn't a perfect substitute but it keeps the allocator buildable and lets
-   the rest of the code continue to exercise the free list logic. */
 void *request_from_os(size_t size) {
-#if defined(_WIN32) || defined(_WIN64)
-    return malloc(size);
-#else
-    /* The classic sbrk interface returns the *previous* program break, so we
-       call it twice: once to query the current break and again to bump it. */
     void *p = sbrk(0);
     if (sbrk(size) == (void *) -1)
         return NULL;
     return p;
-#endif
 }
 
 /* Utility to round up the requested size to a multiple of 8 bytes (or
