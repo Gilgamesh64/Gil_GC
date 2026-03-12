@@ -7,7 +7,12 @@ int main(){
     printf("%p\n", gigi);
     printf("%p\n", tony);
 
+    *gigi = 4;
+    *tony = 10;
+
     gc_free(tony);
 
-    printf("%p\n", gigi);
+    printf("%d\n", *gigi);
+    printf("%d\n", *tony);
+
 }

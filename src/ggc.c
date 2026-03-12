@@ -65,8 +65,7 @@ void *gc_malloc(size_t size) {
     if (!block) {
         block = extend_heap(size);
     } else {
-        /* reuse existing free block; split if it's much bigger than
-           required. */
+        /* reuse existing free block; split if it's 8B bigger than required. */
         block->free = 0;
         if (block->size >= size + sizeof(block_t) + 8) {
             /* split the leftover into a new free block */
