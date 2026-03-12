@@ -1,10 +1,11 @@
 #ifndef GGC
 #define GGC
 #include <stdlib.h>
+#include <stdbool.h>
 
 typedef struct block {
     size_t size;
-    int free;
+   	bool free;
     struct block *next;
     struct block *prev;
 } block_t;
