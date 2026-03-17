@@ -56,6 +56,7 @@ void print_heap(){
             current->size, current->size + sizeof (block_t), current->free? "True" : "False");
         current = current->next;
     }
+    if(current == heap_head) printf("Empty heap\n");
     printf("\n");
 }
 
