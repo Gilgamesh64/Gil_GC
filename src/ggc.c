@@ -1,5 +1,6 @@
 #include "ggc.h"
 #include <unistd.h>
+#include <stdio.h>
 
 block_t *heap_head = NULL;
 
@@ -44,6 +45,18 @@ block_t *find_free_block(size_t size) {
     }
 
     return NULL;
+}
+
+void print_heap(){
+    block_t* current = heap_head;
+    printf("Header size: %zdb\n", sizeof(block_t));
+
+    while(current){
+        printf("Data Size: %zd \t Total Size: %zd \tFree: %s\n", 
+            current->size, current->size + sizeof (block_t), current->free? "True" : "False");
+        current = current->next;
+    }
+    printf("\n");
 }
 
 /** Allocate a new block by requesting memory from the OS.
