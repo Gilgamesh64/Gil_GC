@@ -18,4 +18,12 @@ int main(){
     gc_free(beppi);
 
     print_heap();
+
+    long* gino = gc_malloc(sizeof(long) * 12);
+
+    print_heap();
+
+    gc_free(gino);
+
+    print_heap();
 }

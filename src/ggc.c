@@ -8,7 +8,7 @@ block_t *heap_head = NULL;
   * @param size of the chunk
   * @return a void* to the first address
 */
-void *request_from_os(size_t size) {
+static void *request_from_os(size_t size) {
     void *p = sbrk(0);              //asks for 0 memory to store the first address
     if (sbrk(size) == (void *) -1)  //allocate the chunk of memory and verify its validity
         return NULL;                //Don't question '(void *) -1' it's sbrk being wacky
@@ -35,7 +35,7 @@ static size_t align8(size_t s) {
   * @return a pointer to allocated block or NULL if there is no free block big enough
   *
 */
-block_t *find_free_block(size_t size) {
+static block_t *find_free_block(size_t size) {
     block_t *current = heap_head;
 
     while (current) {
@@ -47,27 +47,14 @@ block_t *find_free_block(size_t size) {
     return NULL;
 }
 
-void print_heap(){
-    block_t* current = heap_head;
-    printf("Header size: %zdb\n", sizeof(block_t));
-
-    while(current){
-        printf("Data Size: %zd \t Total Size: %zd \tFree: %s\n", 
-            current->size, current->size + sizeof (block_t), current->free? "True" : "False");
-        current = current->next;
-    }
-    if(current == heap_head) printf("Empty heap\n");
-    printf("\n");
-}
-
 /** Allocate a new block by requesting memory from the OS.
   * @see void *request_from_os(size_t size)   
   * the returned pointer is inserted at the end of the doubly-linked list.
   * @param size to add to the heap
   * @return  pointer to the first element of the newly allocated block 
   */
-block_t *extend_heap(size_t size) {
-    block_t *block = request_from_os(sizeof(block_t) + size); //header + actual size
+static block_t *extend_heap(size_t size) {
+    block_t *block = request_from_os(sizeof(block_t) + size);   //header + actual size
     if (!block) return NULL;
 
     block->size = size;
@@ -91,20 +78,22 @@ block_t *extend_heap(size_t size) {
 
 /** Allocates a chunk of memory on the heap 
   * Caller must free() for now :)
+  * Shuld check if the return value is not NULL
   * @param size to allocate
-  * @return pointer to the allocated chunk 
+  * @return pointer to the allocated chunk or NULL if failed to extend heap
 */
 void *gc_malloc(size_t size) {
-
     if (size == 0)
         return NULL;
 
     size = align8(size);
     block_t *block = find_free_block(size);
 
-    if (!block) {
-        block = extend_heap(size);
-    } else {    //use existing block
+    if (!block) { 
+        block = extend_heap(size); //if find_free_block failed you can try to allocate the block extending the heap
+        if (!block)                //if extend_heap failed it means the os could not allocate memory
+            return NULL;           //malloc should return NULL
+    } else {                       //use existing block
         block->free = false;
         //splits block if it is 8B bigger then required
         if (block->size >= size + sizeof(block_t) + 8) {
@@ -126,10 +115,7 @@ void *gc_malloc(size_t size) {
         }
     }
 
-    if (!block)
-        return NULL;
-
-    return (void *)(block + 1); //returns the allocated block without the header
+    return (void *)(block + 1);     //returns the allocated block without the header
 }
 
 /**
@@ -160,11 +146,23 @@ static void coalesce(block_t *block) {
   * @param ptr to free
   */
 void gc_free(void *ptr) {
-
     if (!ptr)
         return;
 
-    block_t *block = (block_t*)ptr - 1;
+    block_t *block = (block_t*)ptr - 1;     //retrieve block header
     block->free = true;
     coalesce(block);
+}
+
+void print_heap(){
+    block_t* current = heap_head;
+    printf("Header size: %zdb\n", sizeof(block_t));
+
+    while(current){
+        printf("Data Size: %zd \t Total Size: %zd \tFree: %s\n", 
+            current->size, current->size + sizeof (block_t), current->free? "True" : "False");
+        current = current->next;
+    }
+    if(current == heap_head) printf("Empty heap\n");
+    printf("\n");
 }
