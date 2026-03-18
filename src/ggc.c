@@ -47,6 +47,30 @@ static block_t *find_free_block(size_t size) {
     return NULL;
 }
 
+void print_block(block_t* block){
+    printf("Address: %p \t Data Size: %zd \t Total Size: %zd \tFree: %s \t Next: %p\n", 
+            block, block->size, block->size + sizeof (block_t), block->free? "True" : "False", block->next);
+}
+
+void print_heap(){
+    block_t* current = heap_head;
+    while(current){
+        print_block(current);
+        current = current->next;
+    }
+    if(current == heap_head) printf("Empty heap\n");
+    printf("\n");
+}
+
+bool is_allocated(block_t* block){
+    block_t *current = heap_head;
+    while (current) {
+        if(!current -> free && current == block) return true;
+        current = current->next;
+    }
+    return false;
+}
+
 /** Allocate a new block by requesting memory from the OS.
   * @see void *request_from_os(size_t size)   
   * the returned pointer is inserted at the end of the doubly-linked list.
@@ -143,26 +167,20 @@ static void coalesce(block_t *block) {
   * It does NOT eliminate the contents of the memory chunk until it is over written
   * using a freed pointer will work unless the allocator writes something over the memory chunk
   * it is then UNDEFINED BEHAVIOUR and should not be done
-  * @param ptr to free
+  * @param ptr to free, if not heap allocated by gc_malloc() function will return before seg faults
+  * @return true if freed correctly, otherwise false 
   */
-void gc_free(void *ptr) {
+bool gc_free(void *ptr) {
     if (!ptr)
-        return;
+        return false;
 
     block_t *block = (block_t*)ptr - 1;     //retrieve block header
+
+    if(!is_allocated(block)){               //TODO: make more polite
+        printf("EROOOR TRIED TO FREE RANDOM ASS POINTER! \nPointer %p was not allocated via gc_malloc() \nYOU STOOPID\n\n", ptr);
+        return false;
+    }
     block->free = true;
     coalesce(block);
-}
-
-void print_heap(){
-    block_t* current = heap_head;
-    printf("Header size: %zdb\n", sizeof(block_t));
-
-    while(current){
-        printf("Data Size: %zd \t Total Size: %zd \tFree: %s\n", 
-            current->size, current->size + sizeof (block_t), current->free? "True" : "False");
-        current = current->next;
-    }
-    if(current == heap_head) printf("Empty heap\n");
-    printf("\n");
+    return true;
 }

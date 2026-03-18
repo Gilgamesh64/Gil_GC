@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include "ggc.h"
+#include <stdlib.h>
 
 int main(){
     print_heap();
@@ -26,4 +27,11 @@ int main(){
     gc_free(gino);
 
     print_heap();
+
+    int* a = malloc(sizeof(int));
+    gc_free(a);
+
+    int b = 4;
+    int* c = &b;
+    gc_free(c); 
 }

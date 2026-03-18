@@ -13,7 +13,8 @@ typedef struct block {
 extern block_t *heap_head;
 
 void *gc_malloc(size_t size);
-void gc_free(void *ptr);
+bool gc_free(void *ptr);
+bool is_allocated(block_t* block);
 void print_heap();
 
 #endif
