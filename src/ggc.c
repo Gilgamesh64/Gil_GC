@@ -48,8 +48,8 @@ static block_t *find_free_block(size_t size) {
 }
 
 void print_block(block_t* block){
-    printf("Address: %p \t Data Size: %zd \t Total Size: %zd \tFree: %s \t Next: %p\n", 
-            block, block->size, block->size + sizeof (block_t), block->free? "True" : "False", block->next);
+    printf("Address: %p \t Data Size: %zd \t Total Size: %zd \tFree: %s \t Marked: %s \t Next: %p\n", 
+            block, block->size, block->size + sizeof (block_t), block->free? "True" : "False", block->marked ? "True" : "False", block->next);
 }
 
 void print_heap(){
@@ -183,4 +183,26 @@ bool gc_free(void *ptr) {
     block->free = true;
     coalesce(block);
     return true;
+}
+
+void gc_mark(){
+
+}
+
+void gc_sweep(){
+    block_t* current = heap_head;
+    while(current){
+        if(!current -> free && !current -> marked){
+            printf("SWEEPING:\n");
+            print_block(current);
+            gc_free(current + 1);
+        }
+        current = current -> next;
+    }
+    printf("\n");
+}
+
+void gc_cycle(){
+    gc_mark();
+    gc_sweep();
 }

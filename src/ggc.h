@@ -6,6 +6,7 @@
 typedef struct block {
     size_t size;
    	bool free;
+    bool marked;
     struct block *next;
     struct block *prev;
 } block_t;
@@ -16,5 +17,7 @@ void *gc_malloc(size_t size);
 bool gc_free(void *ptr);
 bool is_allocated(block_t* block);
 void print_heap();
+
+void gc_cycle();
 
 #endif
