@@ -1,6 +1,7 @@
 #include "ggc.h"
 #include <unistd.h>
 #include <stdio.h>
+#include <setjmp.h>
 
 block_t *heap_head = NULL;
 
@@ -208,6 +209,16 @@ void gc_mark(){
         block_t* candidate = from_ptr(*((int**)sp));
         if(is_allocated(candidate)){
             printf("Found!! %p\n", sp);
+            candidate -> marked = true;
+        }
+    }
+
+    jmp_buf env;
+    setjmp(env);
+    for(char* curr_reg = env; curr_reg <= env + sizeof(env); curr_reg++){
+        block_t* candidate = from_ptr(*((int**)curr_reg));
+        if(is_allocated(candidate)){
+            printf("Found!! %p\n", curr_reg);
             candidate -> marked = true;
         }
     }
