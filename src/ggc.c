@@ -5,12 +5,11 @@
 
 block_t *heap_head = NULL;
 
-
 void* stack_bottom;
 __attribute__((constructor)) void before_main() {
     char a;
     stack_bottom = &a;
-    printf("Stack pointer before main: %p\n", stack_bottom);
+    printf("Stack bottom: %p\n", stack_bottom);
 }
 
 /** Requests a chunk of memory from the os
@@ -198,29 +197,26 @@ bool gc_free(void *ptr) {
     return true;
 }
 
+static void try_mark(char* sp){
+    block_t* candidate = from_ptr(*((int**)sp));
+    if(is_allocated(candidate)){
+        printf("Marking %p\n", sp);
+        candidate -> marked = true;
+    }
+}
 
 void gc_mark(){
     char a;
     void* stack_top = &a;
 
-    printf("Stack bottom (higher address): %p, Stack top (current sp, lower address): %p\n", stack_bottom, stack_top);
-
     for(char* sp = (char*)stack_bottom; sp >= (char*)stack_top; sp--){
-        block_t* candidate = from_ptr(*((int**)sp));
-        if(is_allocated(candidate)){
-            printf("Found!! %p\n", sp);
-            candidate -> marked = true;
-        }
+        try_mark(sp);
     }
 
     jmp_buf env;
-    setjmp(env);
-    for(char* curr_reg = env; curr_reg <= env + sizeof(env); curr_reg++){
-        block_t* candidate = from_ptr(*((int**)curr_reg));
-        if(is_allocated(candidate)){
-            printf("Found!! %p\n", curr_reg);
-            candidate -> marked = true;
-        }
+    setjmp(env); //forces the os to write all caller register data into env
+    for(char* curr_reg = (char*) env; curr_reg <= (char*) env + sizeof(env); curr_reg++){
+        try_mark(curr_reg);
     }
 }
 
