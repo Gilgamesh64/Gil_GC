@@ -4,6 +4,14 @@
 
 block_t *heap_head = NULL;
 
+
+void* stack_bottom;
+__attribute__((constructor)) void before_main() {
+    char a;
+    stack_bottom = &a;
+    printf("Stack pointer before main: %p\n", stack_bottom);
+}
+
 /** Requests a chunk of memory from the os
   * @param size of the chunk
   * @return a void* to the first address
@@ -71,6 +79,10 @@ bool is_allocated(block_t* block){
     return false;
 }
 
+block_t* from_ptr(void* ptr){
+    return (block_t*)ptr-1;
+}
+
 /** Allocate a new block by requesting memory from the OS.
   * @see void *request_from_os(size_t size)   
   * the returned pointer is inserted at the end of the doubly-linked list.
@@ -107,7 +119,7 @@ static block_t *extend_heap(size_t size) {
   * @return pointer to the allocated chunk or NULL if failed to extend heap
 */
 void *gc_malloc(size_t size) {
-    if (size == 0)
+    if (size <= 0)
         return NULL;
 
     size = align8(size);
@@ -185,8 +197,20 @@ bool gc_free(void *ptr) {
     return true;
 }
 
-void gc_mark(){
 
+void gc_mark(){
+    char a;
+    void* stack_top = &a;
+
+    printf("Stack bottom (higher address): %p, Stack top (current sp, lower address): %p\n", stack_bottom, stack_top);
+
+    for(char* sp = (char*)stack_bottom; sp >= (char*)stack_top; sp--){
+        block_t* candidate = from_ptr(*((int**)sp));
+        if(is_allocated(candidate)){
+            printf("Found!! %p\n", sp);
+            candidate -> marked = true;
+        }
+    }
 }
 
 void gc_sweep(){
