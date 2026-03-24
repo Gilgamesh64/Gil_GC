@@ -33,7 +33,7 @@ static void *request_from_os(size_t size) {
   * @param s number to round up to 8
   * @return the number rounded up to 8 
 */
-static size_t align8(size_t s) {
+static inline size_t align8(size_t s) {
     return (s + 7) & ~((size_t)7);
 }
 
