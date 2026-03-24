@@ -193,8 +193,28 @@ void before_main() {
 
 Since this function runs **before `main`**, we can capture the **highest possible reachable address** before the compiler can even try to screw everything up.
 
-### Heap scanning
-
-
 ### Registers
 
+Sometimes, pointers to heap data can be inside registers, checking each register one by one is a mess and platform dependent.<br>
+The solution is a C function to force the OS to write all register data inside a bufffer:
+
+##### setjmp
+```c
+jmp_buf env;
+setjmp(env);
+for(char* curr_reg = (char*) env; curr_reg <= (char*) env + sizeof(env); curr_reg++){
+    try_mark(curr_reg);
+}
+```
+
+To test if this scanning properly works we can write something like this in our main function:
+```c
+register void* ptr_reg asm("rbx") = gc_malloc(sizeof(int));
+```
+
+This line stores into the rbx register the pointer returned by gc_malloc. Without register scanning, the first GC cycle would clear the memory block, but with this extra piece of code, we can assure the memory is still alive.
+
+### Heap scanning
+
+When we successfully mark a block, we now have to check if its payload contains pointers to other heap allocated blocks, in that case we must free them too. <br>
+Imagine a liked-list, when we free the pointer to the head, all other elements should be freed too.
