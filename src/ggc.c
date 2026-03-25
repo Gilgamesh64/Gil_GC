@@ -197,11 +197,22 @@ bool gc_free(void *ptr) {
     return true;
 }
 
-static void try_mark(char* sp){
+void try_mark(char* sp);
+
+void mark_contents(block_t* block){
+    char* sp = (char*) (block + 1);
+    char* end = (char*) (sp + block -> size);
+    for(; sp < end; sp++){
+        try_mark(sp);
+    }
+}
+
+void try_mark(char* sp){
     block_t* candidate = from_ptr(*((int**)sp));
     if(is_allocated(candidate)){
         printf("Marking %p\n", sp);
         candidate -> marked = true;
+        mark_contents(candidate);
     }
 }
 

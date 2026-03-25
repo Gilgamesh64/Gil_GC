@@ -218,3 +218,28 @@ This line stores into the rbx register the pointer returned by gc_malloc. Withou
 
 When we successfully mark a block, we now have to check if its payload contains pointers to other heap allocated blocks, in that case we must free them too. <br>
 Imagine a liked-list, when we free the pointer to the head, all other elements should be freed too.
+
+##### functions to check heap allocated pointers
+```c
+void mark_contents(block_t* block){
+    char* sp = (char*) (block + 1);
+    char* end = (char*) (sp + block -> size);
+    for(; sp < end; sp++){
+        try_mark(sp);
+    }
+}
+
+void try_mark(char* sp){
+    block_t* candidate = from_ptr(*((int**)sp));
+    if(is_allocated(candidate)){
+        printf("Marking %p\n", sp);
+        candidate -> marked = true;
+        mark_contents(candidate);
+    }
+}
+```
+
+Each time we mark a block, we check if it contains pointers to heap allocated blocks until no pointer remains.
+Here, if the head of the linked list goes out of scope, the whole list would be deallocated properly.
+
+## Final improvements
