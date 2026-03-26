@@ -14,10 +14,9 @@ typedef struct block {
 static block_t *heap_head = NULL;
 
 //Retrieves the stack bottom by running this function before main in order to take the max possible stack address
-static volatile void* stack_bottom;
+static void* stack_bottom;
 __attribute__((constructor)) void before_main() {
-    volatile char a;
-    stack_bottom = &a;
+    stack_bottom = __builtin_frame_address(0);
     //printf("Stack bottom: %p\n", stack_bottom);
 }
 
@@ -238,7 +237,7 @@ static void mark_contents(const block_t* block){
 
 static void try_mark(const char* sp){
     block_t* candidate = from_ptr(*((int**)sp));
-    if(is_allocated(candidate)){
+    if(is_allocated(candidate) && !candidate -> marked){
         candidate -> marked = true;
         printf("MARKING:\n");
         print_block(candidate);
@@ -247,8 +246,7 @@ static void try_mark(const char* sp){
 }
 
 static void gc_mark(){
-    char a;
-    void* stack_top = &a;
+    void* stack_top = __builtin_frame_address(0);
 
     for(char* sp = (char*)stack_bottom; sp >= (char*)stack_top; sp--){
         try_mark(sp);
@@ -269,6 +267,7 @@ static void gc_sweep(){
             print_block(current);
             gc_free(current + 1);
         }
+        current -> marked = false;
         current = current -> next;
     }
     printf("\n");

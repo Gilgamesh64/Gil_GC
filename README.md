@@ -193,6 +193,12 @@ void before_main() {
 
 Since this function runs **before `main`**, we can capture the **highest possible reachable address** before the compiler can even try to screw everything up.
 
+#### Alternative but specific to gcc/Clang
+```c
+stack_bottom/stack_top = __builtin_frame_address(0)
+```
+It's slightly more precise then creating a variable and taking its address but it will not work with **MSVC**
+
 ### Registers
 
 Sometimes, pointers to heap data can be inside registers, checking each register one by one is a mess and platform dependent.<br>

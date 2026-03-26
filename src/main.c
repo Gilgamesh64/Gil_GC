@@ -21,6 +21,7 @@ void test_reg(){
     register void* ptr_reg asm("rbx") = gc_malloc(sizeof(int));
 
     gc_cycle(); //data stays alive
+    gc_cycle();
 }
 
 void test_free(){
@@ -53,7 +54,7 @@ void test_gc(){
 }
 
 int main(){
-    test_list();
+    test_reg();
 
     return 0;
 }
