@@ -54,7 +54,9 @@ void test_gc(){
 }
 
 int main(){
+    gc_activate_debug();
     test_reg();
+    
 
     return 0;
 }

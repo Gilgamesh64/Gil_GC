@@ -13,6 +13,11 @@ typedef struct block {
 
 static block_t *heap_head = NULL;
 
+bool gc_debug = false;
+void gc_activate_debug(){
+    gc_debug = true;
+}
+
 //Retrieves the stack bottom by running this function before main in order to take the max possible stack address
 static void* stack_bottom;
 __attribute__((constructor)) void before_main() {
@@ -37,7 +42,7 @@ void print_block(const block_t* block){
 /**
  * Prints the entire heap
  */
-void print_heap(){
+void gc_print_heap(){
     block_t* current = heap_head;
     while(current){
         print_block(current);
@@ -217,7 +222,7 @@ bool gc_free(const void *ptr) {
     block_t *block = (block_t*)ptr - 1;     //retrieve block header
 
     if(!is_allocated(block)){               //TODO: make more polite
-        printf("EROOOR TRIED TO FREE RANDOM ASS POINTER! \nPointer %p was not allocated via gc_malloc() \nYOU STOOPID\n\n", ptr);
+        if(gc_debug) printf("EROOOR TRIED TO FREE RANDOM ASS POINTER! \nPointer %p was not allocated via gc_malloc() \nYOU STOOPID\n\n", ptr);
         return false;
     }
     block->free = true;
@@ -239,18 +244,23 @@ static void try_mark(const char* sp){
     block_t* candidate = from_ptr(*((int**)sp));
     if(is_allocated(candidate) && !candidate -> marked){
         candidate -> marked = true;
-        printf("MARKING:\n");
-        print_block(candidate);
+        if(gc_debug){
+            printf("MARKING:\n");
+            print_block(candidate);
+        }
         mark_contents(candidate);
     }
 }
 
 static void gc_mark(){
+    //stack scanning
     void* stack_top = __builtin_frame_address(0);
 
     for(char* sp = (char*)stack_bottom; sp >= (char*)stack_top; sp--){
         try_mark(sp);
     }
+
+    //register scanning
 
     jmp_buf env;
     setjmp(env); //forces the os to write all caller register data into env
@@ -263,17 +273,28 @@ static void gc_sweep(){
     block_t* current = heap_head;
     while(current){
         if(!current -> free && !current -> marked){
-            printf("SWEEPING:\n");
-            print_block(current);
+            if(gc_debug){
+                printf("SWEEPING:\n");
+                print_block(current);
+            }
             gc_free(current + 1);
         }
         current -> marked = false;
         current = current -> next;
     }
-    printf("\n");
+    if(gc_debug) printf("\n");
 }
 
 void gc_cycle(){
+    if(gc_debug){
+        printf("Heap before cycle:\n");
+        gc_print_heap();
+    }
     gc_mark();
     gc_sweep();
+
+    if(gc_debug){
+        printf("Heap after cycle:\n");
+        gc_print_heap();
+    }
 }

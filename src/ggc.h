@@ -5,7 +5,8 @@
 
 void *gc_malloc(size_t size);
 bool gc_free(const void *ptr);
-void print_heap();
+void gc_print_heap();
 void gc_cycle();
+void gc_activate_debug();
 
 #endif
