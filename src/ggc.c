@@ -11,11 +11,12 @@ typedef struct block {
     struct block *prev;
 } block_t;
 
-block_t *heap_head = NULL;
+static block_t *heap_head = NULL;
 
-void* stack_bottom;
+//Retrieves the stack bottom by running this function before main in order to take the max possible stack address
+static volatile void* stack_bottom;
 __attribute__((constructor)) void before_main() {
-    char a;
+    volatile char a;
     stack_bottom = &a;
     //printf("Stack bottom: %p\n", stack_bottom);
 }
@@ -23,7 +24,7 @@ __attribute__((constructor)) void before_main() {
 /** Prints a block, yes, that's it
  *  @param block to print
  */
-void print_block(block_t* block){
+void print_block(const block_t* block){
     printf("Block Address: %p Data Address: %p \t Data Size: %zd \t Total Size: %zd \nFree: %s \t Marked: %s \t Next: %p\n\n", 
             block, 
             block + 1, 
@@ -51,7 +52,7 @@ void print_heap(){
   * @param size of the chunk
   * @return a void* to the first address
 */
-static void *request_from_os(size_t size) {
+static void *request_from_os(const size_t size) {
     void *p = sbrk(0);              //asks for 0 memory to store the first address
     if (sbrk(size) == (void *) -1)  //allocate the chunk of memory and verify its validity
         return NULL;                //Don't question '(void *) -1' it's sbrk being wacky
@@ -68,7 +69,7 @@ static void *request_from_os(size_t size) {
   * @param s number to round up to 8
   * @return the number rounded up to 8 
 */
-static inline size_t align8(size_t s) {
+static inline size_t align8(const size_t s) {
     return (s + 7) & ~((size_t)7);
 }
 
@@ -78,7 +79,7 @@ static inline size_t align8(size_t s) {
   * @return a pointer to allocated block or NULL if there is no free block big enough
   *
 */
-static block_t *find_free_block(size_t size) {
+static block_t *find_free_block(const size_t size) {
     block_t *current = heap_head;
 
     while (current) {
@@ -90,7 +91,11 @@ static block_t *find_free_block(size_t size) {
     return NULL;
 }
 
-bool is_allocated(block_t* block){
+/** Checks if the block is allocated by gc_malloc()
+ * @param block to check
+ * @return true if the block is allocated, false otherwise
+ */
+static bool is_allocated(const block_t* block){
     block_t *current = heap_head;
     while (current) {
         if(!current -> free && current == block) return true;
@@ -99,7 +104,11 @@ bool is_allocated(block_t* block){
     return false;
 }
 
-block_t* from_ptr(void* ptr){
+/** Retrieves a block from a pointer with only pointer aritmetic
+ *  @param ptr
+ *  @return block associated to the pointer, may not be a valid block
+ */ 
+static block_t* from_ptr(const void* ptr){
     return (block_t*)ptr-1;
 }
 
@@ -109,7 +118,7 @@ block_t* from_ptr(void* ptr){
   * @param size to add to the heap
   * @return  pointer to the first element of the newly allocated block 
   */
-static block_t *extend_heap(size_t size) {
+static block_t *extend_heap(const size_t size) {
     block_t *block = request_from_os(sizeof(block_t) + size);   //header + actual size
     if (!block) return NULL;
 
@@ -202,7 +211,7 @@ static void coalesce(block_t *block) {
   * @param ptr to free, if not heap allocated by gc_malloc() function will return before seg faults
   * @return true if freed correctly, otherwise false 
   */
-bool gc_free(void *ptr) {
+bool gc_free(const void *ptr) {
     if (!ptr)
         return false;
 
@@ -217,9 +226,9 @@ bool gc_free(void *ptr) {
     return true;
 }
 
-void try_mark(char* sp);
+static void try_mark(const char* sp);
 
-void mark_contents(block_t* block){
+static void mark_contents(const block_t* block){
     char* sp = (char*) (block + 1);
     char* end = (char*) (sp + block -> size);
     for(; sp < end; sp++){
@@ -227,7 +236,7 @@ void mark_contents(block_t* block){
     }
 }
 
-void try_mark(char* sp){
+static void try_mark(const char* sp){
     block_t* candidate = from_ptr(*((int**)sp));
     if(is_allocated(candidate)){
         candidate -> marked = true;
@@ -237,7 +246,7 @@ void try_mark(char* sp){
     }
 }
 
-void gc_mark(){
+static void gc_mark(){
     char a;
     void* stack_top = &a;
 
@@ -252,7 +261,7 @@ void gc_mark(){
     }
 }
 
-void gc_sweep(){
+static void gc_sweep(){
     block_t* current = heap_head;
     while(current){
         if(!current -> free && !current -> marked){
