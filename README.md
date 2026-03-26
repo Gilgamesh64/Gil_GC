@@ -197,6 +197,7 @@ Since this function runs **before `main`**, we can capture the **highest possibl
 ```c
 stack_bottom/stack_top = __builtin_frame_address(0)
 ```
+Only **after** all of that mess i discovered this function... Oh well, i suppose i'll use that now <br>
 It's slightly more precise then creating a variable and taking its address but it will not work with **MSVC**
 
 ### Registers
@@ -207,9 +208,12 @@ The solution is a C function to force the OS to write all register data inside a
 ##### setjmp
 ```c
 jmp_buf env;
-setjmp(env);
-for(char* curr_reg = (char*) env; curr_reg <= (char*) env + sizeof(env); curr_reg++){
-    try_mark(curr_reg);
+setjmp(env); //forces the os to write all caller register data into env
+uintptr_t* reg = (uintptr_t*)env;
+uintptr_t* end = (uintptr_t*)((char*)env + sizeof(env));
+
+for (; reg < end; reg++) {
+    try_mark((void*)*reg);
 }
 ```
 
@@ -227,19 +231,26 @@ Imagine a liked-list, when we free the pointer to the head, all other elements s
 
 ##### functions to check heap allocated pointers
 ```c
-void mark_contents(block_t* block){
-    char* sp = (char*) (block + 1);
-    char* end = (char*) (sp + block -> size);
-    for(; sp < end; sp++){
+static void mark_contents(const block_t* block){
+    uintptr_t* sp = (uintptr_t*)(block + 1);
+    uintptr_t* end = (uintptr_t*)((char*)(block + 1) + block->size);
+
+    for (; sp < end; sp++) {
         try_mark(sp);
     }
 }
 
-void try_mark(char* sp){
-    block_t* candidate = from_ptr(*((int**)sp));
-    if(is_allocated(candidate)){
-        printf("Marking %p\n", sp);
+static void try_mark(const uintptr_t* sp){
+    block_t* candidate = from_ptr((void*)sp);
+
+    if ((void*)sp < (void*)heap_head) return; // quick reject
+
+    if(is_allocated(candidate) && !candidate -> marked){
         candidate -> marked = true;
+        if(gc_debug){
+            printf("MARKING:\n");
+            print_block(candidate);
+        }
         mark_contents(candidate);
     }
 }

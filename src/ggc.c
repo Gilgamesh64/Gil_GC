@@ -245,7 +245,7 @@ static void mark_contents(const block_t* block){
 static void try_mark(const uintptr_t* sp){
     block_t* candidate = from_ptr((void*)sp);
 
-    if ((void*)sp < (void*)heap_head) return; // quick reject (optional)
+    if ((void*)sp < (void*)heap_head) return; // quick reject
 
     if(is_allocated(candidate) && !candidate -> marked){
         candidate -> marked = true;
