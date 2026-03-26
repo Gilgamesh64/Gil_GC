@@ -3,13 +3,48 @@
 #include <stdio.h>
 #include <setjmp.h>
 
+typedef struct block {
+    size_t size;
+   	bool free;
+    bool marked;
+    struct block *next;
+    struct block *prev;
+} block_t;
+
 block_t *heap_head = NULL;
 
 void* stack_bottom;
 __attribute__((constructor)) void before_main() {
     char a;
     stack_bottom = &a;
-    printf("Stack bottom: %p\n", stack_bottom);
+    //printf("Stack bottom: %p\n", stack_bottom);
+}
+
+/** Prints a block, yes, that's it
+ *  @param block to print
+ */
+void print_block(block_t* block){
+    printf("Block Address: %p Data Address: %p \t Data Size: %zd \t Total Size: %zd \nFree: %s \t Marked: %s \t Next: %p\n\n", 
+            block, 
+            block + 1, 
+            block->size, 
+            block->size + sizeof (block_t), 
+            block->free? "True" : "False", 
+            block->marked ? "True" : "False", 
+            block->next);
+}
+
+/**
+ * Prints the entire heap
+ */
+void print_heap(){
+    block_t* current = heap_head;
+    while(current){
+        print_block(current);
+        current = current->next;
+    }
+    if(current == heap_head) printf("Empty heap\n");
+    printf("\n");
 }
 
 /** Requests a chunk of memory from the os
@@ -53,21 +88,6 @@ static block_t *find_free_block(size_t size) {
     }
 
     return NULL;
-}
-
-void print_block(block_t* block){
-    printf("Address: %p \t Data Size: %zd \t Total Size: %zd \tFree: %s \t Marked: %s \t Next: %p\n", 
-            block, block->size, block->size + sizeof (block_t), block->free? "True" : "False", block->marked ? "True" : "False", block->next);
-}
-
-void print_heap(){
-    block_t* current = heap_head;
-    while(current){
-        print_block(current);
-        current = current->next;
-    }
-    if(current == heap_head) printf("Empty heap\n");
-    printf("\n");
 }
 
 bool is_allocated(block_t* block){
@@ -210,8 +230,9 @@ void mark_contents(block_t* block){
 void try_mark(char* sp){
     block_t* candidate = from_ptr(*((int**)sp));
     if(is_allocated(candidate)){
-        printf("Marking %p\n", sp);
         candidate -> marked = true;
+        printf("MARKING:\n");
+        print_block(candidate);
         mark_contents(candidate);
     }
 }

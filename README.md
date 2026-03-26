@@ -243,3 +243,41 @@ Each time we mark a block, we check if it contains pointers to heap allocated bl
 Here, if the head of the linked list goes out of scope, the whole list would be deallocated properly.
 
 ## Final improvements
+
+## Silly but interesting bugs
+
+```c
+int* test_allocation(){
+    volatile int* a = gc_malloc(sizeof(int));
+    return gc_malloc(sizeof(int));
+}
+void test_out_of_scope(){
+    volatile int* b = test_allocation();
+}
+void test_gc(){
+    test_out_of_scope();
+    gc_cycle();
+}
+```
+For some reason `gc_cycle()` was marking both a and b even if they both went out of scope.
+And even weirder: `calling print_heap()` in between `test_out_of_scope()` and `gc_cycle()` was working perfectly.
+So printing the heap made the GC work? Does not make sense.
+And then i thought: "Is it really the print function that makes the GC work correctly?"
+
+#### i tried this:
+```c
+void test_new_stack_frame(){
+    int a,b;
+}
+
+void test_gc(){
+    test_out_of_scope();
+    test_new_stack_frame();
+    gc_cycle();
+}
+```
+And it worked! Somehow... <br>
+Well, when a stack frame ends, all data it contained is NOT deleted, we just move the **stack pointer** before the start of the stack frame that is being closed. <br>
+So when we exit a function, all variables contained in it stay written on the stack until another stack frame that overwrites them is created. For this reason calling any function after `test_out_of_scope()` makes the GC work because it overwrites both stack frames of the previous functions! <br>
+<br>
+Now we learned the GC does not deallocate pointers that went out of scope in the previous function.<br>
