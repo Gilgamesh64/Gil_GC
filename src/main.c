@@ -54,6 +54,12 @@ void test_gc(){
     gc_cycle();
 }
 
+void tests_run(){
+    printf("Testing standard allocation:\n----------------------------\n");
+    test_gc();
+    gc_cycle();
+}
+
 int main(){
     gc_activate_debug();
     test_gc();

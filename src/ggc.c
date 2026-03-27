@@ -29,7 +29,7 @@ __attribute__((constructor)) void before_main() {
  *  @param block to print
  */
 void print_block(const block_t* block){
-    printf("Block Address: %p Data Address: %p \t Data Size: %zd \t Total Size: %zd \nFree: %s \t Marked: %s \t Next: %p\n\n", 
+    printf("####################\nBlock Address: %p Data Address: %p \t Data Size: %zd \t Total Size: %zd \nFree: %s \t Marked: %s \t Next: %p\n####################\n\n", 
             block, 
             block + 1, 
             block->size, 
@@ -43,13 +43,14 @@ void print_block(const block_t* block){
  * Prints the entire heap
  */
 void gc_print_heap(){
+    printf("------HEAP START------\n");
     block_t* current = heap_head;
     while(current){
         print_block(current);
         current = current->next;
     }
     if(current == heap_head) printf("Empty heap\n");
-    printf("\n");
+    printf("------HEAP END------\n\n");
 }
 
 /** Requests a chunk of memory from the os
@@ -253,6 +254,7 @@ static void try_mark(const char* sp){
 }
 
 static void gc_mark(){
+    if(gc_debug) printf("------MARK PHASE STARTED------\n");
     //stack scanning
     void* stack_top = __builtin_frame_address(0);
 
@@ -267,9 +269,12 @@ static void gc_mark(){
     for(char* curr_reg = (char*) env; curr_reg <= (char*) env + sizeof(env); curr_reg++){
         try_mark(curr_reg);
     }
+    if(gc_debug) printf("------MARK PHASE ENDED------\n\n");
+
 }
 
 static void gc_sweep(){
+    if(gc_debug) printf("------SWEEP PHASE STARTED------\n");
     block_t* current = heap_head;
     while(current){
         if(!current -> free && !current -> marked){
@@ -282,19 +287,10 @@ static void gc_sweep(){
         current -> marked = false;
         current = current -> next;
     }
-    if(gc_debug) printf("\n");
+    if(gc_debug) printf("------SWEEP PHASE ENDED------\n\n");
 }
 
 void gc_cycle(){
-    if(gc_debug){
-        printf("Heap before cycle:\n");
-        gc_print_heap();
-    }
     gc_mark();
     gc_sweep();
-
-    if(gc_debug){
-        printf("Heap after cycle:\n");
-        gc_print_heap();
-    }
 }
