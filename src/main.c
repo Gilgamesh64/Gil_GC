@@ -22,6 +22,8 @@ void test_list(){
 
 void test_reg(){
     register void* ptr_reg asm("rbx") = gc_malloc(sizeof(int));
+    printf("********REGISTER IN SCOPE********\n");
+
 
     gc_cycle(); //data stays alive
 }
