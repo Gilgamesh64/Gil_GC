@@ -49,12 +49,14 @@ void test_new_stack_frame(){
 
 void test_gc(){
     test_out_of_scope();
+
+    int* a = gc_malloc(sizeof(int));
     gc_cycle();
 }
 
 int main(){
     gc_activate_debug();
-    test_list();
+    test_gc();
 
     return 0;
 }

@@ -2,7 +2,6 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <setjmp.h>
-#include <stdint.h>
 
 typedef struct block {
     size_t size;
@@ -14,9 +13,6 @@ typedef struct block {
 
 static block_t *heap_head = NULL;
 
-static void* heap_start = NULL;
-static void* heap_end   = NULL;
-
 bool gc_debug = false;
 void gc_activate_debug(){
     gc_debug = true;
@@ -27,28 +23,6 @@ static void* stack_bottom;
 __attribute__((constructor)) void before_main() {
     stack_bottom = __builtin_frame_address(0);
     //printf("Stack bottom: %p\n", stack_bottom);
-}
-
-/** Utility to round up the requested size to a multiple of 8 bytes (or
-  * the alignment requirements of block_t).  This helps keep the data portion
-  * of each allocation properly aligned.
-  * '(s + 7)' checks if the number goes over the current multiple of 8
-  * '~((size_t)7)' is the bit sequence: 11111000
-  * a bitwise & between any number and 11111000 erases everything under '8' making the result a multiple of 8
-  * for example s = 5, 5+7 = 12 = 00001100 & 11111000 = 00001000 = 8  
-  * @param s number to round up to 8
-  * @return the number rounded up to 8 
-*/
-static inline size_t align8(const size_t s) {
-    return (s + 7) & ~((size_t)7);
-}
-
-/** Retrieves a block from a pointer with only pointer aritmetic
- *  @param ptr
- *  @return block associated to the pointer, may not be a valid block
- */ 
-static block_t* from_ptr(const void* ptr){
-    return (block_t*)ptr-1;
 }
 
 /** Prints a block, yes, that's it
@@ -89,37 +63,18 @@ static void *request_from_os(const size_t size) {
     return p;
 }
 
-/** Allocate a new block by requesting memory from the OS.
-  * @see void *request_from_os(size_t size)   
-  * the returned pointer is inserted at the end of the doubly-linked list.
-  * @param size to add to the heap
-  * @return  pointer to the first element of the newly allocated block 
-  */
-static block_t *extend_heap(const size_t size) {
-    block_t *block = request_from_os(sizeof(block_t) + size);   //header + actual size
-    if (!block) return NULL;
-
-    block->size = size;
-    block->free = false;
-    block -> marked = false;
-    block->next = NULL;
-    block->prev = NULL;
-
-    heap_end = (char*)block + sizeof(block_t) + size;
-
-    if (!heap_head) {
-        heap_head = block;
-        heap_start = block;
-    } else {
-        block_t *last = heap_head;
-        while (last->next)
-            last = last->next;
-
-        last->next = block;
-        block->prev = last;
-    }
-
-    return block;
+/** Utility to round up the requested size to a multiple of 8 bytes (or
+  * the alignment requirements of block_t).  This helps keep the data portion
+  * of each allocation properly aligned.
+  * '(s + 7)' checks if the number goes over the current multiple of 8
+  * '~((size_t)7)' is the bit sequence: 11111000
+  * a bitwise & between any number and 11111000 erases everything under '8' making the result a multiple of 8
+  * for example s = 5, 5+7 = 12 = 00001100 & 11111000 = 00001000 = 8  
+  * @param s number to round up to 8
+  * @return the number rounded up to 8 
+*/
+static inline size_t align8(const size_t s) {
+    return (s + 7) & ~((size_t)7);
 }
 
 /** Scans the heap searching for the FIRST free block
@@ -153,6 +108,43 @@ static bool is_allocated(const block_t* block){
     return false;
 }
 
+/** Retrieves a block from a pointer with only pointer aritmetic
+ *  @param ptr
+ *  @return block associated to the pointer, may not be a valid block
+ */ 
+static block_t* from_ptr(const void* ptr){
+    return (block_t*)ptr-1;
+}
+
+/** Allocate a new block by requesting memory from the OS.
+  * @see void *request_from_os(size_t size)   
+  * the returned pointer is inserted at the end of the doubly-linked list.
+  * @param size to add to the heap
+  * @return  pointer to the first element of the newly allocated block 
+  */
+static block_t *extend_heap(const size_t size) {
+    block_t *block = request_from_os(sizeof(block_t) + size);   //header + actual size
+    if (!block) return NULL;
+
+    block->size = size;
+    block->free = false;
+    block->next = NULL;
+    block->prev = NULL;
+
+    if (!heap_head) {
+        heap_head = block;
+    } else {
+        block_t *last = heap_head;
+        while (last->next)
+            last = last->next;
+
+        last->next = block;
+        block->prev = last;
+    }
+
+    return block;
+}
+
 /** Allocates a chunk of memory on the heap 
   * Caller must free() for now :)
   * Shuld check if the return value is not NULL
@@ -160,7 +152,7 @@ static bool is_allocated(const block_t* block){
   * @return pointer to the allocated chunk or NULL if failed to extend heap
 */
 void *gc_malloc(size_t size) {
-    if (size == 0)
+    if (size <= 0)
         return NULL;
 
     size = align8(size);
@@ -183,7 +175,6 @@ void *gc_malloc(size_t size) {
             block_t *newblk = (block_t *)((char *)(block + 1) + size); 
             newblk->size = block->size - size - sizeof(block_t);
             newblk->free = true;
-            newblk -> marked = false;
             newblk->next = block->next;
             newblk->prev = block;
             if (newblk->next)
@@ -217,11 +208,6 @@ static void coalesce(block_t *block) {
     }
 }
 
-static void gc_free_no_sanitize(block_t* block){
-    block->free = true;
-    coalesce(block);
-}
-
 /** Returns memory back to the allocator
   * It does NOT eliminate the contents of the memory chunk until it is over written
   * using a freed pointer will work unless the allocator writes something over the memory chunk
@@ -239,31 +225,23 @@ bool gc_free(const void *ptr) {
         if(gc_debug) printf("EROOOR TRIED TO FREE RANDOM ASS POINTER! \nPointer %p was not allocated via gc_malloc() \nYOU STOOPID\n\n", ptr);
         return false;
     }
-    gc_free_no_sanitize(block);
+    block->free = true;
+    coalesce(block);
     return true;
 }
 
-static void try_mark(const uintptr_t* sp);
+static void try_mark(const char* sp);
 
 static void mark_contents(const block_t* block){
-    uintptr_t* sp = (uintptr_t*)(block + 1);
-    uintptr_t* end = (uintptr_t*)((char*)(block + 1) + block->size);
-
-    for (; sp < end; sp++) {
+    char* sp = (char*) (block + 1);
+    char* end = (char*) (sp + block -> size);
+    for(; sp < end; sp++){
         try_mark(sp);
     }
 }
 
-static void try_mark(const uintptr_t* sp){
-    //if ((void*)value < heap_start || (void*)value >= heap_end)
-    //    return;
-
-    block_t* candidate = from_ptr((void*)sp);
-    printf("candidate: %p\n", candidate);
-
-    //if (!candidate || candidate->free)
-    //    return;
-
+static void try_mark(const char* sp){
+    block_t* candidate = from_ptr(*((int**)sp));
     if(is_allocated(candidate) && !candidate -> marked){
         candidate -> marked = true;
         if(gc_debug){
@@ -278,16 +256,7 @@ static void gc_mark(){
     //stack scanning
     void* stack_top = __builtin_frame_address(0);
 
-    uintptr_t* start = (uintptr_t*)stack_top;
-    uintptr_t* end   = (uintptr_t*)stack_bottom;
-
-    if (start > end) {
-        uintptr_t* tmp = start;
-        start = end;
-        end = tmp;
-    }
-
-    for (uintptr_t* sp = start; sp < end; sp++) {
+    for(char* sp = (char*)stack_bottom; sp >= (char*)stack_top; sp--){
         try_mark(sp);
     }
 
@@ -295,11 +264,8 @@ static void gc_mark(){
 
     jmp_buf env;
     setjmp(env); //forces the os to write all caller register data into env
-    uintptr_t* reg = (uintptr_t*)env;
-    uintptr_t* reg_end = (uintptr_t*)((char*)env + sizeof(env));
-
-    for (; reg < reg_end; reg++) {
-        try_mark((void*)*reg);
+    for(char* curr_reg = (char*) env; curr_reg <= (char*) env + sizeof(env); curr_reg++){
+        try_mark(curr_reg);
     }
 }
 
@@ -311,7 +277,7 @@ static void gc_sweep(){
                 printf("SWEEPING:\n");
                 print_block(current);
             }
-            gc_free_no_sanitize(current);
+            gc_free(current + 1);
         }
         current -> marked = false;
         current = current -> next;
