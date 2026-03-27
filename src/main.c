@@ -10,6 +10,9 @@ void create_list(){
     test_t *head = gc_malloc(sizeof(test_t));
     
     head -> next = gc_malloc(sizeof(test_t));
+
+    gc_cycle();
+    printf("********LIST GOES OUT OF SCOPE********\n");
 } //head pointer goes out of scope
 
 void test_list(){
@@ -51,18 +54,25 @@ void test_gc(){
     test_out_of_scope();
 
     int* a = gc_malloc(sizeof(int));
+    printf("********2 VAR OUT OF SCOPE, 1 NOT********\n");
     gc_cycle();
 }
 
-void tests_run(){
-    printf("Testing standard allocation:\n----------------------------\n");
+void run_tests(){
+    printf("\n----------------------------Testing standard allocation----------------------------\n");
     test_gc();
+    printf("********1 VAR GOES OUT OF SCOPE********\n");
     gc_cycle();
+    printf("\n\n----------------------------Testing list handling----------------------------\n");
+    test_list();
+    printf("\n\n----------------------------Testing register marking----------------------------\n");
+    test_reg();
+
 }
 
 int main(){
     gc_activate_debug();
-    test_gc();
+    run_tests();
 
     return 0;
 }

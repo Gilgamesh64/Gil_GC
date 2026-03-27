@@ -209,6 +209,11 @@ static void coalesce(block_t *block) {
     }
 }
 
+static void gc_free_no_sanitize(block_t* block){
+    block->free = true;
+    coalesce(block);
+}
+
 /** Returns memory back to the allocator
   * It does NOT eliminate the contents of the memory chunk until it is over written
   * using a freed pointer will work unless the allocator writes something over the memory chunk
@@ -226,8 +231,7 @@ bool gc_free(const void *ptr) {
         if(gc_debug) printf("EROOOR TRIED TO FREE RANDOM ASS POINTER! \nPointer %p was not allocated via gc_malloc() \nYOU STOOPID\n\n", ptr);
         return false;
     }
-    block->free = true;
-    coalesce(block);
+    gc_free_no_sanitize(block);
     return true;
 }
 
@@ -282,7 +286,7 @@ static void gc_sweep(){
                 printf("SWEEPING:\n");
                 print_block(current);
             }
-            gc_free(current + 1);
+            gc_free_no_sanitize(current);
         }
         current -> marked = false;
         current = current -> next;
@@ -291,6 +295,8 @@ static void gc_sweep(){
 }
 
 void gc_cycle(){
+    if(gc_debug) printf("--------GC CYCLE STARTED--------\n");
     gc_mark();
     gc_sweep();
+    if(gc_debug) printf("--------GC CYCLE ENDED--------\n");
 }
