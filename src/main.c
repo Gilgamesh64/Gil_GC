@@ -54,7 +54,7 @@ void test_gc(){
 
 int main(){
     gc_activate_debug();
-    test_gc();
+    test_list();
 
     return 0;
 }
