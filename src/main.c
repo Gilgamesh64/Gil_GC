@@ -57,6 +57,7 @@ void test_gc(){
 
     int* a = gc_malloc(sizeof(int));
     printf("********2 VAR OUT OF SCOPE, 1 NOT********\n");
+    gc_print_heap();
     gc_cycle();
 }
 
@@ -69,6 +70,8 @@ void run_tests(){
     test_list();
     printf("\n\n----------------------------Testing register marking----------------------------\n");
     test_reg();
+
+    gc_print_heap();
 
 }
 

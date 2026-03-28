@@ -12,6 +12,7 @@ typedef struct block {
 } block_t;
 
 static block_t *heap_head = NULL;
+static void *heap_end = NULL;
 
 bool gc_debug = false;
 void gc_activate_debug(){
@@ -23,6 +24,29 @@ static void* stack_bottom;
 __attribute__((constructor)) void before_main() {
     stack_bottom = __builtin_frame_address(0);
     //printf("Stack bottom: %p\n", stack_bottom);
+}
+
+
+/** Utility to round up the requested size to a multiple of 8 bytes (or
+  * the alignment requirements of block_t).  This helps keep the data portion
+  * of each allocation properly aligned.
+  * '(s + 7)' checks if the number goes over the current multiple of 8
+  * '~((size_t)7)' is the bit sequence: 11111000
+  * a bitwise & between any number and 11111000 erases everything under '8' making the result a multiple of 8
+  * for example s = 5, 5+7 = 12 = 00001100 & 11111000 = 00001000 = 8  
+  * @param s number to round up to 8
+  * @return the number rounded up to 8 
+*/
+static inline size_t align8(const size_t s) {
+    return (s + 7) & ~((size_t)7);
+}
+
+/** Retrieves a block from a pointer with only pointer aritmetic
+ *  @param ptr
+ *  @return block associated to the pointer, may not be a valid block
+ */ 
+static block_t* from_ptr(const void* ptr){
+    return (block_t*)ptr-1;
 }
 
 /** Prints a block, yes, that's it
@@ -43,6 +67,7 @@ void print_block(const block_t* block){
  * Prints the entire heap
  */
 void gc_print_heap(){
+    printf("Head: %p,\t End: %p\n\n", heap_head, heap_end);
     printf("------HEAP START------\n");
     block_t* current = heap_head;
     while(current){
@@ -64,18 +89,36 @@ static void *request_from_os(const size_t size) {
     return p;
 }
 
-/** Utility to round up the requested size to a multiple of 8 bytes (or
-  * the alignment requirements of block_t).  This helps keep the data portion
-  * of each allocation properly aligned.
-  * '(s + 7)' checks if the number goes over the current multiple of 8
-  * '~((size_t)7)' is the bit sequence: 11111000
-  * a bitwise & between any number and 11111000 erases everything under '8' making the result a multiple of 8
-  * for example s = 5, 5+7 = 12 = 00001100 & 11111000 = 00001000 = 8  
-  * @param s number to round up to 8
-  * @return the number rounded up to 8 
-*/
-static inline size_t align8(const size_t s) {
-    return (s + 7) & ~((size_t)7);
+/** Allocate a new block by requesting memory from the OS.
+  * @see void *request_from_os(size_t size)   
+  * the returned pointer is inserted at the end of the doubly-linked list.
+  * @param size to add to the heap
+  * @return  pointer to the first element of the newly allocated block 
+  */
+static block_t *extend_heap(const size_t size) {
+    block_t *block = request_from_os(sizeof(block_t) + size);   //header + actual size
+    if (!block) return NULL;
+
+    block->size = size;
+    block->free = false;
+    block -> marked = false;
+    block->next = NULL;
+    block->prev = NULL;
+
+    heap_end = (char*)block + sizeof(block_t) + size;
+
+    if (!heap_head) {
+        heap_head = block;
+    } else {
+        block_t *last = heap_head;
+        while (last->next)
+            last = last->next;
+
+        last->next = block;
+        block->prev = last;
+    }
+
+    return block;
 }
 
 /** Scans the heap searching for the FIRST free block
@@ -96,6 +139,10 @@ static block_t *find_free_block(const size_t size) {
     return NULL;
 }
 
+static inline bool is_out_of_heap(block_t* candidate){
+    return (void*) candidate < (void*) heap_head || (void*) candidate > heap_end;
+}
+
 /** Checks if the block is allocated by gc_malloc()
  * @param block to check
  * @return true if the block is allocated, false otherwise
@@ -109,43 +156,6 @@ static bool is_allocated(const block_t* block){
     return false;
 }
 
-/** Retrieves a block from a pointer with only pointer aritmetic
- *  @param ptr
- *  @return block associated to the pointer, may not be a valid block
- */ 
-static block_t* from_ptr(const void* ptr){
-    return (block_t*)ptr-1;
-}
-
-/** Allocate a new block by requesting memory from the OS.
-  * @see void *request_from_os(size_t size)   
-  * the returned pointer is inserted at the end of the doubly-linked list.
-  * @param size to add to the heap
-  * @return  pointer to the first element of the newly allocated block 
-  */
-static block_t *extend_heap(const size_t size) {
-    block_t *block = request_from_os(sizeof(block_t) + size);   //header + actual size
-    if (!block) return NULL;
-
-    block->size = size;
-    block->free = false;
-    block->next = NULL;
-    block->prev = NULL;
-
-    if (!heap_head) {
-        heap_head = block;
-    } else {
-        block_t *last = heap_head;
-        while (last->next)
-            last = last->next;
-
-        last->next = block;
-        block->prev = last;
-    }
-
-    return block;
-}
-
 /** Allocates a chunk of memory on the heap 
   * Caller must free() for now :)
   * Shuld check if the return value is not NULL
@@ -153,7 +163,7 @@ static block_t *extend_heap(const size_t size) {
   * @return pointer to the allocated chunk or NULL if failed to extend heap
 */
 void *gc_malloc(size_t size) {
-    if (size <= 0)
+    if (size == 0)
         return NULL;
 
     size = align8(size);
@@ -176,6 +186,7 @@ void *gc_malloc(size_t size) {
             block_t *newblk = (block_t *)((char *)(block + 1) + size); 
             newblk->size = block->size - size - sizeof(block_t);
             newblk->free = true;
+            newblk -> marked = false;
             newblk->next = block->next;
             newblk->prev = block;
             if (newblk->next)
@@ -247,7 +258,13 @@ static void mark_contents(const block_t* block){
 
 static void try_mark(const char* sp){
     block_t* candidate = from_ptr(*((int**)sp));
-    if(is_allocated(candidate) && !candidate -> marked){
+
+    if(is_out_of_heap(candidate)){
+        return; //not a candidate pointer!!
+    }
+    if(gc_debug) printf("\nptr: %p is a possible candidate pointer\n", candidate);
+
+    if(!candidate -> marked && !candidate -> free && candidate -> size > 0){
         candidate -> marked = true;
         if(gc_debug){
             printf("MARKING:\n");
@@ -295,6 +312,8 @@ static void gc_sweep(){
 }
 
 void gc_cycle(){
+    if(heap_head == NULL) return;
+
     if(gc_debug) printf("--------GC CYCLE STARTED--------\n");
     gc_mark();
     gc_sweep();
