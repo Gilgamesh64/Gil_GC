@@ -2,6 +2,7 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <setjmp.h>
+#include <stdint.h>
 
 typedef struct block {
     size_t size;
@@ -246,17 +247,17 @@ bool gc_free(const void *ptr) {
     return true;
 }
 
-static void try_mark(const char* sp);
+static void try_mark(const uintptr_t* sp);
 
 static void mark_contents(const block_t* block){
-    char* sp = (char*) (block + 1);
-    char* end = (char*) (sp + block -> size);
-    for(; sp < end; sp++){
+    uintptr_t* sp = (uintptr_t*)(block + 1);
+    uintptr_t* end = (uintptr_t*)((char*)(block + 1) + block->size);
+    for (; sp < end; sp++) {
         try_mark(sp);
     }
 }
 
-static void try_mark(const char* sp){
+static void try_mark(const uintptr_t* sp){
     block_t* candidate = from_ptr(*((int**)sp));
 
     if(is_out_of_heap(candidate)){
@@ -279,7 +280,16 @@ static void gc_mark(){
     //stack scanning
     void* stack_top = __builtin_frame_address(0);
 
-    for(char* sp = (char*)stack_bottom; sp >= (char*)stack_top; sp--){
+    uintptr_t* start = (uintptr_t*)stack_top;
+    uintptr_t* end   = (uintptr_t*)stack_bottom;
+
+    if (start > end) {
+        uintptr_t* tmp = start;
+        start = end;
+        end = tmp;
+    }
+
+    for (uintptr_t* sp = start; sp < end; sp++) {
         try_mark(sp);
     }
 
@@ -287,8 +297,11 @@ static void gc_mark(){
 
     jmp_buf env;
     setjmp(env); //forces the os to write all caller register data into env
-    for(char* curr_reg = (char*) env; curr_reg <= (char*) env + sizeof(env); curr_reg++){
-        try_mark(curr_reg);
+    uintptr_t* reg = (uintptr_t*)env;
+    uintptr_t* reg_end = (uintptr_t*)((char*)env + sizeof(env));
+
+    for (; reg < reg_end; reg++) {
+        try_mark(reg);
     }
     if(gc_debug) printf("------MARK PHASE ENDED------\n\n");
 
