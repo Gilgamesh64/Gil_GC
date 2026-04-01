@@ -128,8 +128,8 @@ Finally, it was time to implement the actual GC which is made of two phases:
 There are 3 major locations where pointers can point to heap-allocated objects:
 
 1. **The stack**
-2. **The heap itself**
-3. **Registers**
+2. **Registers**
+3. **The heap itself**
 
 ### Stack Scanning
 
@@ -187,7 +187,6 @@ __attribute__((constructor))
 void before_main() {
     char a;
     stack_bottom = &a;
-    printf("Stack pointer before main: %p\n", stack_bottom);
 }
 ```
 
@@ -198,12 +197,17 @@ Since this function runs **before `main`**, we can capture the **highest possibl
 stack_bottom/stack_top = __builtin_frame_address(0)
 ```
 Only **after** all of that mess i discovered this function... Oh well, i suppose i'll use that now <br>
+Hours to come up with some real cooking, and then i discover a better way to do it...
 It's slightly more precise then creating a variable and taking its address but it will not work with **MSVC**
 
 ### Registers
 
-Sometimes, pointers to heap data can be inside registers, checking each register one by one is a mess and platform dependent.<br>
-The solution is a C function to force the OS to write all register data inside a bufffer:
+Sometimes, pointers to heap blocks could live in registers<br>
+The compiler is free to optimize code and often will not even write variables in memory, keeping them in registers is way faster. But what happens if the compiler optimizes away a heap pointer?<br>
+We scan the stack, the pointer is **not** there because it lives in registers, and we sweep away its block. When the program then tries to access it: boom, undefined behaviour. <br>
+Shit, how many edge cases do i have to handle.<br>
+We then need **some** way to check registers in the mark phase. How can we do that? Checking registers one by one is a giant footgun, so many things can go wrong and it would be platform dependent.<br>
+The solution is a C function to force the OS to write all register data inside a bufffer to then scan it:
 
 ##### setjmp
 ```c
@@ -222,42 +226,15 @@ To test if this scanning properly works we can write something like this in our 
 register void* ptr_reg asm("rbx") = gc_malloc(sizeof(int));
 ```
 
-This line stores into the rbx register the pointer returned by gc_malloc. Without register scanning, the first GC cycle would clear the memory block, but with this extra piece of code, we can assure the memory is still alive.
+This line stores into the `rbx` register the pointer returned by gc_malloc`. Without register scanning, the first GC cycle would clear the memory block, but with this extra piece of code, we can assure the memory is still alive.
 
 ### Heap scanning
+Oh god, another edge case... Let's see what is happening this time<br>
+Imagine a liked-list, it's composed by one pointer from the stack to the head of the linked-list, then each node is connected to the next one, and where is this **next** pointer located?
+Why of chourse in a location we didn't handle yet: its payload. <br>
 
 When we successfully mark a block, we now have to check if its payload contains pointers to other heap allocated blocks, in that case we must free them too. <br>
-Imagine a liked-list, when we free the pointer to the head, all other elements should be freed too.
-
-##### functions to check heap allocated pointers
-```c
-static void mark_contents(const block_t* block){
-    uintptr_t* sp = (uintptr_t*)(block + 1);
-    uintptr_t* end = (uintptr_t*)((char*)(block + 1) + block->size);
-
-    for (; sp < end; sp++) {
-        try_mark(sp);
-    }
-}
-
-static void try_mark(const uintptr_t* sp){
-    block_t* candidate = from_ptr((void*)sp);
-
-    if ((void*)sp < (void*)heap_head) return; // quick reject
-
-    if(is_allocated(candidate) && !candidate -> marked){
-        candidate -> marked = true;
-        if(gc_debug){
-            printf("MARKING:\n");
-            print_block(candidate);
-        }
-        mark_contents(candidate);
-    }
-}
-```
-
-Each time we mark a block, we check if it contains pointers to heap allocated blocks until no pointer remains.
-Here, if the head of the linked list goes out of scope, the whole list would be deallocated properly.
+Then we recursively scan all pointers we found until we find a block that contains no pointer to blocks, then we are sure to have successfully reached the end on the list. Other data structures **shuld** work too. I will try debug this **garbage** wink wink, with other weirder data structures like graphs but it **should** work.
 
 ## Final improvements
 
@@ -277,7 +254,7 @@ void test_gc(){
 }
 ```
 For some reason `gc_cycle()` was marking both a and b even if they both went out of scope.
-And even weirder: `calling print_heap()` in between `test_out_of_scope()` and `gc_cycle()` was working perfectly.
+And even weirder: calling `print_heap()` in between `test_out_of_scope()` and `gc_cycle()` was working perfectly.
 So printing the heap made the GC work? Does not make sense.
 And then i thought: "Is it really the print function that makes the GC work correctly?"
 
@@ -296,5 +273,6 @@ void test_gc(){
 And it worked! Somehow... <br>
 Well, when a stack frame ends, all data it contained is NOT deleted, we just move the **stack pointer** before the start of the stack frame that is being closed. <br>
 So when we exit a function, all variables contained in it stay written on the stack until another stack frame that overwrites them is created. For this reason calling any function after `test_out_of_scope()` makes the GC work because it overwrites both stack frames of the previous functions! <br>
-<br>
-Now we learned the GC does not deallocate pointers that went out of scope in the previous function.<br>
+Previously i was approximating the top of the stack so it was possible to reach past the stack pointer, finding pointers that were supposedly just been destroyed. After updating the line to find stack borders, the stack to is more prcise so this issue doesn't happen now<br> 
+Still, it's a nice and intreresting behaviour to note.
+
