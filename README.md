@@ -49,7 +49,7 @@ In the future I'll migrate to using sbrk for small allocations and mmap for larg
 ```c
 static void *request_from_os(size_t size) {
     void *p = sbrk(0);
-    if (sbrk(size) == (void *) -1)
+    if (sbrk(size) == (void *) -1) //don't ask, just don't
         return NULL;
     return p;
 }
@@ -60,7 +60,7 @@ It's already documented in depth so I ain't gonna repeat myself, finger consumpt
 #### Aligning to pages
 ```c
 static inline size_t align8(size_t s) {
-    return (s + 7) & ~((size_t)7);
+    return (s + 7) & ~((size_t)7); //magic abracadabra bit hack
 }
 ```
 
@@ -131,6 +131,8 @@ There are 3 major locations where pointers can point to heap-allocated objects:
 2. **Registers**
 3. **The heap itself**
 
+## Mark phase
+
 ### Stack Scanning
 
 I first tried to retrieve the **stack borders**.
@@ -146,7 +148,7 @@ There are two ways:
 
 1. **Direct assembly instruction (not portable):**
 ```c
-asm("mov %%rsp, %0" : "=r"(stack_top));
+asm("mov %%rsp, %0" : "=r"(stack_top)); //no i don't know how it works, just googled it
 ```
 
 2. **An assumption-based method:**
@@ -183,7 +185,7 @@ If the compiler can shuffle things in `main`, what if we take a snapshot **befor
 ```c
 void* stack_bottom;
 
-__attribute__((constructor))
+__attribute__((constructor)) //just a trick to run a function between .start and main
 void before_main() {
     char a;
     stack_bottom = &a;
@@ -231,10 +233,53 @@ This line stores into the `rbx` register the pointer returned by gc_malloc`. Wit
 ### Heap scanning
 Oh god, another edge case... Let's see what is happening this time<br>
 Imagine a liked-list, it's composed by one pointer from the stack to the head of the linked-list, then each node is connected to the next one, and where is this **next** pointer located?
-Why of chourse in a location we didn't handle yet: its payload. <br>
+Why of chourse in a location we didn't handle yet: its payload. <br><br>
 
 When we successfully mark a block, we now have to check if its payload contains pointers to other heap allocated blocks, in that case we must free them too. <br>
 Then we recursively scan all pointers we found until we find a block that contains no pointer to blocks, then we are sure to have successfully reached the end on the list. Other data structures **shuld** work too. I will try debug this **garbage** wink wink, with other weirder data structures like graphs but it **should** work.
+
+#### full gc_mark implementation, more definitely not professional pseudo-code
+```c
+gc_mark(){
+    foreach ptr in stack:
+        try_mark(ptr)
+    
+    hi OS, i have this really beautiful buffer called env
+    can you please put all your registers inside env? No? Fuck off imma forcing you to do it anyway
+    
+    foreach ptr in env:
+        try_mark(ptr)
+}
+
+try_mark(ptr){
+    if ptr is not between heap border:
+        skip it, definitely not a good pointer
+    else check more thoroughly and if it really is a heap pointer:
+        block = block pointed by ptr
+        mark block
+        mark_contents(block) //mark eventual pointers it contains
+}
+
+mark_contents(block){
+    foreach ptr in block contents:
+        try_mark(ptr)
+}
+```
+
+## Sweep phase
+Finally! Something simple and definitely not full of crap. <br>
+The sweep phase is non ironically super simple
+
+``` i'm getting used to this garbage pseudo-code
+foreach block in heap:
+    if not marked:
+        free
+```
+
+Yes, that's it bye.<br><br><br>
+What now? It's not cool enough? You wanted some revolutionary algoritm? It's not the place for you then. <br><br><br><br><br>
+Still here? Huh, I suppose i'm gonna make it more complex just for you.<br>
+**coming soon**
 
 ## Final improvements
 
