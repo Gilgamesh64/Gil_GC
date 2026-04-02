@@ -164,8 +164,6 @@ static block_t* find_block_containing(void* ptr) {
         void* start = (void*)(current + 1);
         void* end   = (void*)((char*)(start) + current->size);
 
-        if(gc_debug) printf("start: %p, ptr: %p, end: %p\n", start, ptr, end);
-
         if (ptr >= start && ptr < end) {
             return current;
         }
@@ -280,8 +278,6 @@ static void try_mark(const uintptr_t* sp){
     if(is_out_of_heap((void*) *sp)){
         return;
     }
-
-    if(gc_debug) printf("\nptr: %p is a possible candidate pointer\n", sp);
 
     block_t* candidate = find_block_containing((void*) *sp);
 
