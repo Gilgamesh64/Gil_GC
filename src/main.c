@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include "ggc.h"
+#include "ggc_visualizer.h"
 #include <stdlib.h>
 
 typedef struct test{
@@ -64,8 +65,14 @@ void test_gc(){
 void run_tests(){
     printf("\n----------------------------Testing standard allocation----------------------------\n");
     test_gc();
+    //SDL_Delay(3000);
+    //visualizer_cleanup();
+
     printf("********1 VAR GOES OUT OF SCOPE********\n");
     gc_cycle();
+    SDL_Delay(3000);
+    //visualizer_cleanup();
+
     printf("\n\n----------------------------Testing list handling----------------------------\n");
     test_list();
     printf("\n\n----------------------------Testing register marking----------------------------\n");
@@ -76,7 +83,9 @@ void run_tests(){
 }
 
 int main(){
-    //gc_activate_debug();
+    gc_activate_debug();
+    visualizer_init();
+
     run_tests();
     return 0;
 }

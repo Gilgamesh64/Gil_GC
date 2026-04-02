@@ -1,4 +1,5 @@
 #include "ggc.h"
+#include "ggc_visualizer.h"
 #include <unistd.h>
 #include <stdio.h>
 #include <setjmp.h>
@@ -17,6 +18,14 @@ static block_t *heap_head = NULL;
 static block_t* heap_tail = NULL;
 static void *heap_end = NULL;
 
+void* gc_get_heap_head(void) {
+    return heap_head;
+}
+
+void* gc_get_heap_end(void) {
+    return heap_end;
+}
+
 bool gc_debug = false;
 void gc_activate_debug(){
     gc_debug = true;
@@ -27,6 +36,25 @@ static void* stack_bottom;
 __attribute__((constructor)) void before_main() {
     stack_bottom = __builtin_frame_address(0);
     //printf("Stack bottom: %p\n", stack_bottom);
+}
+
+
+void gc_mark_hook(block_t* block) {
+    size_t offset = (char*)block - (char*)heap_head;
+    visualizer_add_block(offset, block->size, block->free, block->marked);
+    visualizer_draw();
+}
+
+void gc_sweep_hook(block_t* block) {
+    size_t offset = (char*)block - (char*)heap_head;
+    visualizer_add_block(offset, block->size, block->free, block->marked);
+    visualizer_draw();
+}
+
+void gc_alloc_hook(block_t* block) {
+    size_t offset = (char*)block - (char*)heap_head;
+    visualizer_add_block(offset, block->size, block->free, block->marked);
+    visualizer_draw();
 }
 
 
@@ -282,6 +310,7 @@ static void try_mark(const uintptr_t* sp){
         if(gc_debug){
             printf("MARKING:\n");
             print_block(candidate);
+            if(gc_mark_hook) gc_mark_hook(candidate);
         }
         mark_contents(candidate);
     }
@@ -338,6 +367,8 @@ static void gc_sweep(){
 
 void gc_cycle(){
     if(heap_head == NULL) return;
+
+    visualizer_clear();
     
     struct timespec start, mark, end;
 
