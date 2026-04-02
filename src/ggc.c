@@ -13,6 +13,7 @@ typedef struct block {
 } block_t;
 
 static block_t *heap_head = NULL;
+static block_t* heap_tail = NULL;
 static void *heap_end = NULL;
 
 bool gc_debug = false;
@@ -40,14 +41,6 @@ __attribute__((constructor)) void before_main() {
 */
 static inline size_t align8(const size_t s) {
     return (s + 7) & ~((size_t)7);
-}
-
-/** Retrieves a block from a pointer with only pointer aritmetic
- *  @param ptr
- *  @return block associated to the pointer, may not be a valid block
- */ 
-static block_t* from_ptr(const void* ptr){
-    return (block_t*)ptr-1;
 }
 
 /** Prints a block, yes, that's it
@@ -110,13 +103,11 @@ static block_t *extend_heap(const size_t size) {
 
     if (!heap_head) {
         heap_head = block;
+        heap_tail = block;
     } else {
-        block_t *last = heap_head;
-        while (last->next)
-            last = last->next;
-
-        last->next = block;
-        block->prev = last;
+        heap_tail->next = block;
+        block->prev = heap_tail;
+        heap_tail = block;
     }
 
     return block;

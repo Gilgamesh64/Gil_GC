@@ -182,7 +182,7 @@ void test_alignment() {
 
 void test_massive() {
     separator("Massive Allocation");
-    for (int i = 0; i < 1500; i++) {
+    for (int i = 0; i < 2000; i++) {
         void *p = gc_malloc(2048 * 2048 * 2);
         memset(p, i, 1024);
     }
