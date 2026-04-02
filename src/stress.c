@@ -184,7 +184,7 @@ void test_massive() {
     separator("Massive Allocation");
     for (int i = 0; i < 2000; i++) {
         void *p = gc_malloc(2048 * 2048 * 2);
-        memset(p, i, 1024);
+        memset(p, i, 4096);
     }
     gc_cycle();
     separator("Massive allocation goes out of scope");
@@ -252,7 +252,7 @@ void print_prompt() {
 
 // ---------- Main ----------
 int main() {
-    gc_activate_debug();
+    //gc_activate_debug();
     int input = 0;
 
     do{

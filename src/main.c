@@ -76,7 +76,7 @@ void run_tests(){
 }
 
 int main(){
-    gc_activate_debug();
+    //gc_activate_debug();
     run_tests();
     return 0;
 }

@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <setjmp.h>
 #include <stdint.h>
+#include <time.h>
 
 typedef struct block {
     size_t size;
@@ -337,9 +338,31 @@ static void gc_sweep(){
 
 void gc_cycle(){
     if(heap_head == NULL) return;
+    
+    struct timespec start, mark, end;
+
+    clock_gettime(CLOCK_MONOTONIC, &start);
 
     if(gc_debug) printf("--------GC CYCLE STARTED--------\n");
+    
     gc_mark();
+
+    clock_gettime(CLOCK_MONOTONIC, &mark);
+
     gc_sweep();
+
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    double tot = 
+        (end.tv_sec - start.tv_sec) +
+        (end.tv_nsec - start.tv_nsec) / 1e9;
+    double mark_time = 
+        (mark.tv_sec - start.tv_sec) +
+        (mark.tv_nsec - start.tv_nsec) / 1e9;
+    double sweep_time = 
+        (end.tv_sec - mark.tv_sec) +
+        ((end.tv_nsec - mark.tv_nsec) / 1e9);
+
     if(gc_debug) printf("--------GC CYCLE ENDED--------\n");
+
+    printf("\n--------Performance: --------\nTotal: %f\tMark: %f\t Sweep: %f\n\n", tot, mark_time, sweep_time);
 }
