@@ -283,6 +283,11 @@ Still here? Huh, I suppose i'm gonna make it more complex just for you.<br>
 
 ## Final improvements
 
+###
+Added heap tail. <br>
+Better stack scan
+Better O(n) heap scan 
+
 ## Silly but interesting bugs
 
 ```c
