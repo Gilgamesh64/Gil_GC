@@ -5,17 +5,14 @@
 #include "ggc.h"
 
 #define LARGE_SIZE (1024 * 1024 * 10) // 10 MB
-#define SMALL_COUNT 10
-#define MIXED_COUNT 50000
+#define SMALL_COUNT 100
+#define MIXED_COUNT 500
 
 // ---------- Test Helpers ----------
 void separator(const char *name) {
     printf("\n================ %s ================\n", name);
 }
 
-// ---------- Tests ----------
-
-// 1. Basic allocation & survival
 void test_basic() {
     separator("Basic Allocation");
     int *a = (int *)gc_malloc(sizeof(int));
@@ -23,7 +20,6 @@ void test_basic() {
     separator("Basic Allocation exit scope");
 }
 
-// 2. Large allocation
 void test_large_alloc() {
     separator("Large Allocation");
     char *buf = (char *)gc_malloc(LARGE_SIZE);
@@ -32,7 +28,6 @@ void test_large_alloc() {
     separator("Large Allocation exit scooe");
 }
 
-// 3. Many small allocations
 void test_many_small() {
     separator("Many Small Allocations");
     void *ptrs[SMALL_COUNT];
@@ -43,17 +38,15 @@ void test_many_small() {
     separator("Many small allocations exit scope");
 }
 
-// 4. Dangling references (should be collected)
 void test_dangling() {
     separator("Dangling References");
     int *a = (int *)gc_malloc(sizeof(int));
     *a = 99;
     a = NULL;
     gc_cycle();
-    printf("Dangling object should be freed\n");
+    separator("Dangling object should be freed");
 }
 
-// 5. Linked list
 typedef struct Node {
     struct Node *next;
 } Node;
@@ -61,7 +54,7 @@ typedef struct Node {
 void test_linked_list() {
     separator("Linked List");
     Node *head = NULL;
-    for (int i = 0; i < SMALL_COUNT / 2; i++) {
+    for (int i = 0; i < SMALL_COUNT; i++) {
         Node *n = gc_malloc(sizeof(Node));
         n->next = head;
         head = n;
@@ -70,7 +63,6 @@ void test_linked_list() {
     separator("Linked list out of scope");
 }
 
-// 6. Cyclic references (classic GC test)
 typedef struct Cycle {
     struct Cycle *other;
 } Cycle;
@@ -83,13 +75,12 @@ void test_cycle() {
     b->other = a;
 
     a = NULL;
-    b = NULL;
+    //b = NULL;
 
     gc_cycle();
     separator("Cycle goes out of scope");
 }
 
-// 7. Interior pointers (pointer to middle of block)
 void test_interior_pointer() {
     separator("Interior Pointer");
     char *buf = (char *)gc_malloc(100);
@@ -98,20 +89,18 @@ void test_interior_pointer() {
     char *mid = buf + 3;
     gc_cycle();
 
-    printf("Interior pointer content: %s\n", mid);
+    separator("Interior pointer goes out of scope");
 }
 
-// 8. Stack pointer retention
 void test_stack_roots() {
     separator("Stack Roots");
     int *a = (int *)gc_malloc(sizeof(int));
     *a = 123;
 
     gc_cycle();
-    printf("Stack root value: %d\n", *a);
+    separator("Stack roots goes out of scope");
 }
 
-// 9. Overwrite pointer (lost reference)
 void test_overwrite() {
     separator("Overwrite Pointer");
     int *a = (int *)gc_malloc(sizeof(int));
@@ -122,9 +111,9 @@ void test_overwrite() {
 
     gc_cycle();
     printf("Only latest allocation should remain: %d\n", *a);
+    separator("Overwrittern pointer goes out of scope");
 }
 
-// 10. Fragmentation stress
 void test_fragmentation() {
     separator("Fragmentation Stress");
     void *ptrs[MIXED_COUNT];
@@ -139,10 +128,9 @@ void test_fragmentation() {
     }
 
     gc_cycle();
-    printf("Fragmentation test complete\n");
+    separator("Fragmented memory goes out of scope");
 }
 
-// 11. Repeated GC cycles
 void test_repeated_gc() {
     separator("Repeated GC");
     for (int i = 0; i < 100; i++) {
@@ -151,9 +139,9 @@ void test_repeated_gc() {
         gc_cycle();
     }
     printf("Repeated GC cycles done\n");
+    separator("Going out of scope");
 }
 
-// 12. Deep recursion (stack scanning stress)
 void recursive_alloc(int depth) {
     if (depth == 0) return;
     int *a = (int *)gc_malloc(sizeof(int));
@@ -168,7 +156,6 @@ void test_deep_stack() {
     gc_cycle();
 }
 
-// 13. False pointers (random data looking like pointer)
 void test_false_pointers() {
     separator("False Pointers");
     uintptr_t *fake = (uintptr_t *)gc_malloc(sizeof(uintptr_t) * 100);
@@ -178,10 +165,9 @@ void test_false_pointers() {
     }
 
     gc_cycle();
-    printf("False pointer test complete\n");
+    printf("False pointers going out of scope");
 }
 
-// 14. Alignment edge cases
 void test_alignment() {
     separator("Alignment");
     char *a = (char *)gc_malloc(3);
@@ -191,10 +177,9 @@ void test_alignment() {
     a[0] = 'A'; b[0] = 'B'; c[0] = 'C';
 
     gc_cycle();
-    printf("Alignment test: %c %c %c\n", a[0], b[0], c[0]);
+    separator("Alignment test goes out of scope");
 }
 
-// 15. Massive allocation + GC
 void test_massive() {
     separator("Massive Allocation");
     for (int i = 0; i < 1000; i++) {
@@ -202,64 +187,80 @@ void test_massive() {
         memset(p, i, 1024);
     }
     gc_cycle();
-    printf("Massive allocation test done\n");
+    separator("Massive allocation goes out of scope");
 }
 
-void test(){
+void debug_test(){
     gc_cycle();
     gc_print_heap();
     getchar();
 }
 
+void trigger_test(void(*function)()){
+    function();
+    debug_test();
+}
+
+typedef void (*TestFunc)(void);
+
+typedef struct {
+    const char *name;
+    TestFunc func;
+} TestEntry;
+
+TestEntry tests[] = {
+    { "manual_gc_cycle", gc_cycle},
+    { "test_basic", test_basic },
+    { "test_large_alloc", test_large_alloc },
+    { "test_many_small", test_many_small },
+    { "test_dangling", test_dangling },
+    { "test_linked_list", test_linked_list },
+    { "test_cycle", test_cycle },
+    { "test_interior_pointer", test_interior_pointer },
+    { "test_stack_roots", test_stack_roots },
+    { "test_overwrite", test_overwrite },
+    { "test_fragmentation", test_fragmentation },
+    { "test_repeated_gc", test_repeated_gc },
+    { "test_deep_stack", test_deep_stack },
+    { "test_false_pointers", test_false_pointers },
+    { "test_alignment", test_alignment },
+    { "test_massive", test_massive }
+};
+
+int num_tests = sizeof(tests) / sizeof(tests[0]);
+
+void select_option(int input){
+    TestFunc function = test_basic; // default
+
+    if (input >= 1 && input <= num_tests) {
+        function = tests[input - 1].func;
+    }
+
+    trigger_test(function);
+}
+
+void print_prompt() {
+    printf("\n=== Select a test to run ===\n");
+    printf(" 0) Exit\n");
+
+    for (int i = 0; i < num_tests; i++) {
+        printf("%2d) %s\n", i + 1, tests[i].name);
+    }
+
+    printf("Enter your choice: ");
+}
+
 // ---------- Main ----------
 int main() {
     gc_activate_debug();
+    int input = 0;
 
-    test_basic();
-    test();
-
-    //test_large_alloc();
-    test();
-
-    //test_many_small();
-    test();
-
-    test_dangling();
-    test();
-
-    test_linked_list();
-    test();
-
-    test_cycle();
-    test();
-
-    //test_interior_pointer();
-    test();
-
-    test_stack_roots();
-    test();
-
-    test_overwrite();
-    test();
-
-    //test_fragmentation();
-    test();
-
-    //test_repeated_gc();
-    test();
-
-    test_deep_stack();
-    test();
-
-    test_false_pointers();
-    test();
-
-    test_alignment();
-    test();
-
-    //test_massive();
-    test();
-
+    do{
+        print_prompt();
+        scanf("%d", &input);
+        if(input > 0)
+            select_option(input);
+    } while(input != 0);
 
     separator("Final Heap State");
     gc_print_heap();

@@ -140,8 +140,8 @@ static block_t *find_free_block(const size_t size) {
     return NULL;
 }
 
-static inline bool is_out_of_heap(block_t* candidate){
-    return (void*) candidate < (void*) heap_head || (void*) candidate > heap_end;
+static inline bool is_out_of_heap(const void* p){
+    return p < (void*) heap_head || p > heap_end;
 }
 
 /** Checks if the block is allocated by gc_malloc()
@@ -155,6 +155,25 @@ static bool is_allocated(const block_t* block){
         current = current->next;
     }
     return false;
+}
+
+static block_t* find_block_containing(void* ptr) {
+    block_t* current = heap_head;
+
+    while (current) {
+        void* start = (void*)(current + 1);
+        void* end   = (void*)((char*)(start) + current->size);
+
+        if(gc_debug) printf("start: %p, ptr: %p, end: %p\n", start, ptr, end);
+
+        if (ptr >= start && ptr < end) {
+            return current;
+        }
+
+        current = current->next;
+    }
+
+    return NULL;
 }
 
 /** Allocates a chunk of memory on the heap 
@@ -258,14 +277,19 @@ static void mark_contents(const block_t* block){
 }
 
 static void try_mark(const uintptr_t* sp){
-    block_t* candidate = from_ptr(*((int**)sp));
-
-    if(is_out_of_heap(candidate)){
-        return; //not a candidate pointer!!
+    if(is_out_of_heap((void*) *sp)){
+        return;
     }
-    if(gc_debug) printf("\nptr: %p is a possible candidate pointer\n", candidate);
 
-    if(!candidate -> marked && !candidate -> free && candidate -> size > 0){
+    if(gc_debug) printf("\nptr: %p is a possible candidate pointer\n", sp);
+
+    block_t* candidate = find_block_containing((void*) *sp);
+
+    if(!candidate){
+        return;
+    }
+
+    if(!candidate -> marked){
         candidate -> marked = true;
         if(gc_debug){
             printf("MARKING:\n");
