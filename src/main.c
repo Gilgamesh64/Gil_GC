@@ -85,6 +85,8 @@ int main(){
     void* allocations[100];
     int curr = 0;
 
+    printf("Press:\nD -> nullify last\nQ -> allocate int\nW -> allocate 2 doubles\nM -> mark\nS -> sweep\nC -> full cycle");
+
     while (!WindowShouldClose()) {
 
         // --- demo interaction ---
