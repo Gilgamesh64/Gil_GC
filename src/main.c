@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include "ggc.h"
+#include <raylib.h>
 #include <stdlib.h>
 
 typedef struct test{
@@ -76,7 +77,51 @@ void run_tests(){
 }
 
 int main(){
-    //gc_activate_debug();
-    run_tests();
+    int screenW = 1000;
+    int screenH = 400;
+
+    InitWindow(screenW, screenH, "Linked List Visual");
+    SetTargetFPS(60);
+    void* allocations[100];
+    int curr = 0;
+
+    while (!WindowShouldClose()) {
+
+        // --- demo interaction ---
+        if (IsKeyPressed(KEY_D)) {
+            if(curr > 0) curr--;
+            allocations[curr] = NULL;
+            printf("ptr at pos %d becomes NULL\n", curr);
+        }
+        if (IsKeyPressed(KEY_Q)) {
+            allocations[curr] = gc_malloc(sizeof(int));
+            printf("Allocating new pointer at pos: %d\n", curr);
+            curr++;
+        }
+        if (IsKeyPressed(KEY_W)) {
+            allocations[curr] = gc_malloc(sizeof(double) * 2);
+            printf("Allocating new pointer at pos: %d\n", curr);
+            curr++;
+        }
+        if (IsKeyPressed(KEY_M)) {
+            gc_mark();
+        }
+        if (IsKeyPressed(KEY_S)) {
+            gc_sweep();
+        }
+        if (IsKeyPressed(KEY_C)) {
+            gc_cycle();
+        }
+
+        // --- draw ---
+        BeginDrawing();
+        ClearBackground(RAYWHITE);
+
+        gc_visualizer_draw_list(GetScreenWidth(), GetScreenHeight());
+
+        EndDrawing();
+    }
+
+    CloseWindow();
     return 0;
 }

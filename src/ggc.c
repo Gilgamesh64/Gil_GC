@@ -1,4 +1,5 @@
 #include "ggc.h"
+#include <raylib.h>
 #include <unistd.h>
 #include <stdio.h>
 #include <setjmp.h>
@@ -22,6 +23,11 @@ void gc_activate_debug(){
     gc_debug = true;
 }
 
+bool gc_visualize = false;
+void gc_activae_visualizer(){
+    gc_visualize = true;
+}
+
 //Retrieves the stack bottom by running this function before main in order to take the max possible stack address
 static void* stack_bottom;
 __attribute__((constructor)) void before_main() {
@@ -42,6 +48,38 @@ __attribute__((constructor)) void before_main() {
 */
 static inline size_t align8(const size_t s) {
     return (s + 7) & ~((size_t)7);
+}
+
+size_t total_size() {
+    size_t sum = 0;
+    block_t* current = heap_head;
+    while (current) {
+        sum += current->size;
+        current = current->next;
+    }
+    return sum;
+}
+
+void gc_visualizer_draw_list(int screenW, int screenH) {
+    float total = total_size();
+    if (total <= 0) return;
+
+    float x = 0;
+    block_t* current = heap_head;
+
+    while (current) {
+        float width = (current->size / total) * screenW;
+
+        Color color = current->free ? RED : GREEN;
+        color = current -> marked ? BLUE : color;
+
+        DrawRectangle((int)x, 0, (int)width, screenH, color);
+
+        DrawRectangleLines((int)x, 0, (int)width, screenH, BLACK);
+
+        x += width;
+        current = current->next;
+    }
 }
 
 /** Prints a block, yes, that's it
@@ -287,7 +325,7 @@ static void try_mark(const uintptr_t* sp){
     }
 }
 
-static void gc_mark(){
+void gc_mark(){
     if(gc_debug) printf("------MARK PHASE STARTED------\n");
     //stack scanning
     void* stack_top = __builtin_frame_address(0);
@@ -319,7 +357,7 @@ static void gc_mark(){
 
 }
 
-static void gc_sweep(){
+void gc_sweep(){
     if(gc_debug) printf("------SWEEP PHASE STARTED------\n");
     block_t* current = heap_head;
     while(current){
