@@ -18,8 +18,12 @@ static block_t* heap_tail = NULL;
 static void *heap_end = NULL;
 
 bool gc_debug = false;
-void gc_activate_debug(){
+void gc_activate_gc_debug(){
     gc_debug = true;
+}
+bool allocator_debug = false;
+void gc_activate_allocator_debug(){
+    allocator_debug = true;
 }
 
 //Retrieves the stack bottom by running this function before main in order to take the max possible stack address
@@ -180,6 +184,7 @@ void *gc_malloc(size_t size) {
     block_t *block = find_free_block(size);
 
     if (!block) { 
+        if(allocator_debug) printf("------EXTENDING HEAP------\n");
         block = extend_heap(size); //if find_free_block failed you can try to allocate the block extending the heap
         if (!block)                //if extend_heap failed it means the os could not allocate memory
             return NULL;           //malloc should return NULL
@@ -205,6 +210,10 @@ void *gc_malloc(size_t size) {
             block->size = size;
         }
     }
+    if(allocator_debug){
+        printf("------NEW ALLOCATED BLOCK------\n");
+        print_block(block);
+    } 
 
     return (void *)(block + 1);     //returns the allocated block without the header
 }
@@ -249,10 +258,11 @@ bool gc_free(const void *ptr) {
     block_t *block = (block_t*)ptr - 1;     //retrieve block header
 
     if(!is_allocated(block)){               //TODO: make more polite
-        if(gc_debug) printf("EROOOR TRIED TO FREE RANDOM ASS POINTER! \nPointer %p was not allocated via gc_malloc() \nYOU STOOPID\n\n", ptr);
+        if(allocator_debug) printf("EROOOR TRIED TO FREE RANDOM ASS POINTER! \nPointer %p was not allocated via gc_malloc() \nYOU STOOPID\n\n", ptr);
         return false;
     }
     gc_free_no_sanitize(block);
+
     return true;
 }
 
@@ -339,30 +349,36 @@ static void gc_sweep(){
 void gc_cycle(){
     if(heap_head == NULL) return;
     
-    struct timespec start, mark, end;
+    if(!gc_debug){
+        gc_mark();
+        gc_sweep();
+    }
+    else{
+        struct timespec start, mark, end;
 
-    clock_gettime(CLOCK_MONOTONIC, &start);
+        clock_gettime(CLOCK_MONOTONIC, &start);
 
-    if(gc_debug) printf("--------GC CYCLE STARTED--------\n");
-    
-    gc_mark();
+        if(gc_debug) printf("--------GC CYCLE STARTED--------\n");
+        
+        gc_mark();
 
-    clock_gettime(CLOCK_MONOTONIC, &mark);
+        clock_gettime(CLOCK_MONOTONIC, &mark);
 
-    gc_sweep();
+        gc_sweep();
 
-    clock_gettime(CLOCK_MONOTONIC, &end);
-    double tot = 
-        (end.tv_sec - start.tv_sec) +
-        (end.tv_nsec - start.tv_nsec) / 1e9;
-    double mark_time = 
-        (mark.tv_sec - start.tv_sec) +
-        (mark.tv_nsec - start.tv_nsec) / 1e9;
-    double sweep_time = 
-        (end.tv_sec - mark.tv_sec) +
-        ((end.tv_nsec - mark.tv_nsec) / 1e9);
+        clock_gettime(CLOCK_MONOTONIC, &end);
+        double tot = 
+            (end.tv_sec - start.tv_sec) +
+            (end.tv_nsec - start.tv_nsec) / 1e9;
+        double mark_time = 
+            (mark.tv_sec - start.tv_sec) +
+            (mark.tv_nsec - start.tv_nsec) / 1e9;
+        double sweep_time = 
+            (end.tv_sec - mark.tv_sec) +
+            ((end.tv_nsec - mark.tv_nsec) / 1e9);
 
-    if(gc_debug) printf("--------GC CYCLE ENDED--------\n");
+        printf("--------GC CYCLE ENDED--------\n");
 
-    printf("\n--------Performance: --------\nTotal: %f\tMark: %f\t Sweep: %f\n\n", tot, mark_time, sweep_time);
+        printf("\n--------Performance: --------\nTotal: %f\tMark: %f\t Sweep: %f\n\n", tot, mark_time, sweep_time);
+    }
 }
