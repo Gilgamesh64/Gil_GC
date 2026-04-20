@@ -75,8 +75,16 @@ void run_tests(){
 
 }
 
+void test_calloc(){
+    int* a = gc_calloc(10, sizeof(int));
+    for(int i = 0; i < 10; i++) printf("i: %d, a: %d\n", i, a[i]);
+    gc_cycle();
+}
+
 int main(){
-    //gc_activate_debug();
-    run_tests();
+    gc_activate_allocator_debug();
+    gc_activate_gc_debug();
+    test_calloc();
+    gc_cycle();
     return 0;
 }

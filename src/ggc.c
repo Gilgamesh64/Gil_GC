@@ -218,6 +218,32 @@ void *gc_malloc(size_t size) {
     return (void *)(block + 1);     //returns the allocated block without the header
 }
 
+void *gc_calloc(size_t element_number, size_t element_size){
+    if(element_number == 0 || element_size == 0)
+        return NULL;
+
+    if (element_size != 0 && element_number > SIZE_MAX / element_size) {
+        return NULL; // overflow
+    }
+
+    size_t total = element_number * element_size;
+    void *ptr = gc_malloc(total);
+    if (!ptr) return NULL;
+
+    memset(ptr, 0, total);
+    return ptr;
+}
+
+void *gc_realloc(void *ptr, size_t new_size){
+    if (ptr == NULL)
+        return malloc(new_size);
+
+    if (new_size == 0) {
+        free(ptr);
+        return NULL;
+    }
+}
+
 /**
   * Attempt to merge adjacent free blocks to reduce fragmentation
   * @param free block to merge  
