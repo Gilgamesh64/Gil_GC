@@ -84,7 +84,11 @@ void test_calloc(){
 int main(){
     gc_activate_allocator_debug();
     gc_activate_gc_debug();
-    test_calloc();
+    char* a = gc_malloc(104 * sizeof(char));
+    char* b = gc_calloc(200, sizeof(char));
+    char* c = gc_calloc(3, sizeof(char));
+    b = gc_realloc(b, 400 * sizeof(char));
     gc_cycle();
+    gc_print_heap();
     return 0;
 }

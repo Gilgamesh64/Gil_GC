@@ -3,7 +3,9 @@
 #include <stdio.h>
 #include <setjmp.h>
 #include <stdint.h>
+#include <string.h>
 #include <time.h>
+#define MIN(a,b) ((a) < (b) ? (a) : (b))
 
 typedef struct block {
     size_t size;
@@ -13,9 +15,9 @@ typedef struct block {
     struct block *prev;
 } block_t;
 
-static block_t *heap_head = NULL;
+static block_t* heap_head = NULL;
 static block_t* heap_tail = NULL;
-static void *heap_end = NULL;
+static void* heap_end = NULL;
 
 bool gc_debug = false;
 void gc_activate_gc_debug(){
@@ -26,7 +28,7 @@ void gc_activate_allocator_debug(){
     allocator_debug = true;
 }
 
-//Retrieves the stack bottom by running this function before main in order to take the max possible stack address
+///Retrieves the stack bottom by running this function before main in order to take the max possible stack address
 static void* stack_bottom;
 __attribute__((constructor)) void before_main() {
     stack_bottom = __builtin_frame_address(0);
@@ -49,8 +51,8 @@ static inline size_t align8(const size_t s) {
 }
 
 /** Prints a block, yes, that's it
- *  @param block to print
- */
+  * @param block to print
+*/
 void print_block(const block_t* block){
     printf("####################\nBlock Address: %p Data Address: %p \t Data Size: %zd \t Total Size: %zd \nFree: %s \t Marked: %s \t Next: %p\n####################\n\n", 
             block, 
@@ -62,9 +64,7 @@ void print_block(const block_t* block){
             block->next);
 }
 
-/**
- * Prints the entire heap
- */
+///Prints the entire heap
 void gc_print_heap(){
     printf("Head: %p,\t End: %p\n\n", heap_head, heap_end);
     printf("------HEAP START------\n");
@@ -81,21 +81,21 @@ void gc_print_heap(){
   * @param size of the chunk
   * @return a void* to the first address
 */
-static void *request_from_os(const size_t size) {
-    void *p = sbrk(0);              //asks for 0 memory to store the first address
-    if (sbrk(size) == (void *) -1)  //allocate the chunk of memory and verify its validity
-        return NULL;                //Don't question '(void *) -1' it's sbrk being wacky
+static void* request_from_os(const size_t size) {
+    void* p = sbrk(0);              //asks for 0 memory to store the first address
+    if (sbrk(size) == (void* ) -1)  //allocate the chunk of memory and verify its validity
+        return NULL;                //Don't question '(void* ) -1' it's sbrk being wacky
     return p;
 }
 
 /** Allocate a new block by requesting memory from the OS.
-  * @see void *request_from_os(size_t size)   
+  * @see void* request_from_os(size_t size)   
   * the returned pointer is inserted at the end of the doubly-linked list.
   * @param size to add to the heap
   * @return  pointer to the first element of the newly allocated block 
-  */
-static block_t *extend_heap(const size_t size) {
-    block_t *block = request_from_os(sizeof(block_t) + size);   //header + actual size
+*/
+static block_t* extend_heap(const size_t size) {
+    block_t* block = request_from_os(sizeof(block_t) + size);   //header + actual size
     if (!block) return NULL;
 
     block->size = size;
@@ -104,7 +104,7 @@ static block_t *extend_heap(const size_t size) {
     block->next = NULL;
     block->prev = NULL;
 
-    heap_end = (char*)block + sizeof(block_t) + size;
+    heap_end = (char *)block + sizeof(block_t) + size;
 
     if (!heap_head) {
         heap_head = block;
@@ -122,10 +122,9 @@ static block_t *extend_heap(const size_t size) {
   * first fit policy
   * @param size to allocate
   * @return a pointer to allocated block or NULL if there is no free block big enough
-  *
 */
-static block_t *find_free_block(const size_t size) {
-    block_t *current = heap_head;
+static block_t* find_free_block(const size_t size) {
+    block_t* current = heap_head;
 
     while (current) {
         if (current->free && current->size >= size)
@@ -136,16 +135,49 @@ static block_t *find_free_block(const size_t size) {
     return NULL;
 }
 
+/** Utility to exclude all pointers that surely are not heap allocated
+  * It's not precise to further scan is required:
+  * @see is_allocated()
+  * @param pointer to scan
+  * @return true if pointer is out of heap bounds
+*/
 static inline bool is_out_of_heap(const void* p){
     return p < (void*) heap_head || p > heap_end;
 }
 
+/** Splits block if it is 8B bigger then required
+  * @param block maybe too big
+  * @param size you wish the block to be near to
+*/
+static void try_split_block(block_t* block, size_t size){
+    if (block->size >= size + sizeof(block_t) + 8) {
+        /* block + 1 returns the data part of the block (without header)
+           pointer arithmetic is based on the size of the type, adding 1 to block moves the pointer by sizeof(block_t), leaving out the header
+           casting to char* unlocks 1B pointer arithmetic instead of sizeof(block_t) based one
+           adding size we actually allocate the block
+           we then have to cast it back to block_t*
+        */
+        block_t* new_block = (block_t *)((char *)(block + 1) + size); 
+        new_block->size = block->size - size - sizeof(block_t);
+        new_block->free = true;
+        new_block -> marked = false;
+        new_block->next = block->next;
+        new_block->prev = block;
+        if (new_block->next)
+            new_block->next->prev = new_block;
+        block->next = new_block;
+        block->size = size;
+    }
+}
+
 /** Checks if the block is allocated by gc_malloc()
- * @param block to check
- * @return true if the block is allocated, false otherwise
- */
+  * Should usually be called after previous boundary check
+  * @see is_out_of_heap()
+  * @param block to check
+  * @return true if the block is allocated, false otherwise
+*/
 static bool is_allocated(const block_t* block){
-    block_t *current = heap_head;
+    block_t* current = heap_head;
     while (current) {
         if(!current -> free && current == block) return true;
         current = current->next;
@@ -153,12 +185,17 @@ static bool is_allocated(const block_t* block){
     return false;
 }
 
-static block_t* find_block_containing(void* ptr) {
+/** Retrieves a block containing a pointer, it's similar to:
+  * @see is_allocated but allows pointer arithmetic
+  * @param ptr to scan
+  * @return block if found one, NULL if not
+*/
+static block_t* find_block_containing(const void* ptr) {
     block_t* current = heap_head;
 
     while (current) {
-        void* start = (void*)(current + 1);
-        void* end   = (void*)((char*)(start) + current->size);
+        void* start = (void* )(current + 1);
+        void* end   = (void* )((char* )(start) + current->size);
 
         if (ptr >= start && ptr < end) {
             return current;
@@ -171,17 +208,16 @@ static block_t* find_block_containing(void* ptr) {
 }
 
 /** Allocates a chunk of memory on the heap 
-  * Caller must free() for now :)
   * Shuld check if the return value is not NULL
   * @param size to allocate
-  * @return pointer to the allocated chunk or NULL if failed to extend heap
+  * @return pointer to the allocated chunk or NULL if failed to allocate
 */
-void *gc_malloc(size_t size) {
+void* gc_malloc(size_t size) {
     if (size == 0)
         return NULL;
 
     size = align8(size);
-    block_t *block = find_free_block(size);
+    block_t* block = find_free_block(size);
 
     if (!block) { 
         if(allocator_debug) printf("------EXTENDING HEAP------\n");
@@ -190,35 +226,24 @@ void *gc_malloc(size_t size) {
             return NULL;           //malloc should return NULL
     } else {                       //use existing block
         block->free = false;
-        //splits block if it is 8B bigger then required
-        if (block->size >= size + sizeof(block_t) + 8) {
-        	/* block + 1 returns the data part of the block (without header)
-        	   pointer arithmetic is based on the size of the type, adding 1 to block moves the pointer by sizeof(block_t), leaving out the header
-        	   casting to char* unlocks 1B pointer arithmetic instead of sizeof(block_t) based one
-        	   adding size we actually allocate the block
-        	   we then have to cast it back to block_t*
-        	*/
-            block_t *newblk = (block_t *)((char *)(block + 1) + size); 
-            newblk->size = block->size - size - sizeof(block_t);
-            newblk->free = true;
-            newblk -> marked = false;
-            newblk->next = block->next;
-            newblk->prev = block;
-            if (newblk->next)
-                newblk->next->prev = newblk;
-            block->next = newblk;
-            block->size = size;
-        }
+        try_split_block(block, size);
     }
     if(allocator_debug){
         printf("------NEW ALLOCATED BLOCK------\n");
         print_block(block);
     } 
 
-    return (void *)(block + 1);     //returns the allocated block without the header
+    return (void* )(block + 1);     //returns the allocated block without the header
 }
 
-void *gc_calloc(size_t element_number, size_t element_size){
+/** Allocates a chunk of memory on the heap 
+  * Zeros all its contents and checks for overflow 
+  * Shuld check if the return value is not NULL
+  * @param element_number number of elements
+  * @param element_size size of each element
+  * @return pointer to the allocated chunk or NULL if failed to allocate
+*/
+void* gc_calloc(size_t element_number, size_t element_size){
     if(element_number == 0 || element_size == 0)
         return NULL;
 
@@ -227,37 +252,108 @@ void *gc_calloc(size_t element_number, size_t element_size){
     }
 
     size_t total = element_number * element_size;
-    void *ptr = gc_malloc(total);
+    void* ptr = gc_malloc(total);
     if (!ptr) return NULL;
 
     memset(ptr, 0, total);
     return ptr;
 }
 
-void *gc_realloc(void *ptr, size_t new_size){
+/** Reallocates a chunk of memory
+  * First tries to shrink block
+  * Then tries merging with neighbours, if merging fails calls malloc and frees previous block
+  * @param ptr to reallocate, if NULL falls back to gc_malloc
+  * @param new_size for the block, if NULL fall back to gc_free
+  * @return new location of the pointer
+*/
+void* gc_realloc(void* ptr, size_t new_size){
     if (ptr == NULL)
-        return malloc(new_size);
+        return gc_malloc(new_size);
 
     if (new_size == 0) {
         free(ptr);
         return NULL;
     }
+
+    if(is_out_of_heap(ptr))
+        return NULL;
+
+    block_t* block = (block_t*)ptr - 1;
+
+    if(!is_allocated(block) || block -> free)
+        return NULL;
+    
+    if(block -> size >= new_size){
+        try_split_block(block, new_size);
+        return ptr;
+    }
+    
+    block_t* left = block -> prev;
+    block_t* right = block -> next;
+
+    //merge both sides
+    if (left && right &&
+        left->free && right->free &&
+        (left->size + block->size + right->size + 2*sizeof(block_t)) >= new_size) {
+        left -> free = false;
+        left->size += block->size + right->size + 2*sizeof(block_t);
+        left->next = right->next;
+        if (left->next)
+            left->next->prev = left;
+
+        try_split_block(block, new_size);
+        memmove((void*)(left + 1), ptr, block->size);
+
+        return (void*)(left + 1);
+    }
+    //merge right
+    if (right && right->free &&
+        (block->size + right->size + sizeof(block_t)) >= new_size) {
+
+        block->size += right->size + sizeof(block_t);
+        block->next = right->next;
+        if (block->next)
+            block->next->prev = block;
+        try_split_block(block, new_size);
+
+        return ptr;
+    }
+
+    //merge left
+    if (left && left->free &&
+        (left->size + block->size + sizeof(block_t)) >= new_size) {
+        left -> free = false;
+        left->size += block->size + sizeof(block_t);
+        left->next = block->next;
+        if (left->next)
+            left->next->prev = left;
+        try_split_block(block, new_size);
+
+        memmove((void*)(left + 1), ptr, block->size);
+        return (void*)(left + 1);
+    }
+
+    void* new_location = gc_malloc(new_size);
+    if (!new_location)
+        return NULL;
+    memcpy(new_location, ptr, MIN(block -> size, new_size));
+    gc_free(ptr);
+    return new_location;
 }
 
-/**
-  * Attempt to merge adjacent free blocks to reduce fragmentation
+/** Attempt to merge adjacent free blocks to reduce fragmentation
   * @param free block to merge  
-  */
-static void coalesce(block_t *block) {
-    if (block->next && block->next->free) {
-        block_t *n = block->next;
+*/
+static void coalesce(block_t* block) {
+    while(block->next && block->next->free) {
+        block_t* n = block->next;
         block->size += sizeof(block_t) + n->size;
         block->next = n->next;
         if (n->next)
             n->next->prev = block;
     }
-    if (block->prev && block->prev->free) {
-        block_t *p = block->prev;
+    while(block->prev && block->prev->free) {
+        block_t* p = block->prev;
         p->size += sizeof(block_t) + block->size;
         p->next = block->next;
         if (block->next)
@@ -265,6 +361,9 @@ static void coalesce(block_t *block) {
     }
 }
 
+/** Free called internally if you are sure the block is valid
+  * @param block to free
+*/
 static void gc_free_no_sanitize(block_t* block){
     block->free = true;
     coalesce(block);
@@ -277,11 +376,11 @@ static void gc_free_no_sanitize(block_t* block){
   * @param ptr to free, if not heap allocated by gc_malloc() function will return before seg faults
   * @return true if freed correctly, otherwise false 
   */
-bool gc_free(const void *ptr) {
+bool gc_free(const void* ptr) {
     if (!ptr)
         return false;
 
-    block_t *block = (block_t*)ptr - 1;     //retrieve block header
+    block_t* block = (block_t*)ptr - 1;     //retrieve block header
 
     if(!is_allocated(block)){               //TODO: make more polite
         if(allocator_debug) printf("EROOOR TRIED TO FREE RANDOM ASS POINTER! \nPointer %p was not allocated via gc_malloc() \nYOU STOOPID\n\n", ptr);
@@ -292,22 +391,29 @@ bool gc_free(const void *ptr) {
     return true;
 }
 
-static void try_mark(const uintptr_t* sp);
+static void try_mark(const uintptr_t* ptr);
 
+/** Scans the payload of a block searching for pointers to other blocks
+  * @param block to scan
+*/
 static void mark_contents(const block_t* block){
-    uintptr_t* sp = (uintptr_t*)(block + 1);
+    uintptr_t* start = (uintptr_t*)(block + 1);
     uintptr_t* end = (uintptr_t*)((char*)(block + 1) + block->size);
-    for (; sp < end; sp++) {
-        try_mark(sp);
+    for (; start < end; start++) {
+        try_mark(start);
     }
 }
 
-static void try_mark(const uintptr_t* sp){
-    if(is_out_of_heap((void*) *sp)){
+/** Perform sanity checks and tries to determine if a pointer to a block is valid
+  * In that case, retrieves the block and marks it
+  * @param ptr to try mark
+*/
+static void try_mark(const uintptr_t* ptr){
+    if(is_out_of_heap((void*) *ptr)){
         return;
     }
 
-    block_t* candidate = find_block_containing((void*) *sp);
+    block_t* candidate = find_block_containing((void*) *ptr);
 
     if(!candidate){
         return;
@@ -323,6 +429,7 @@ static void try_mark(const uintptr_t* sp){
     }
 }
 
+///Performs the full mark phase scanning stack, heap, registers and .data segment
 static void gc_mark(){
     if(gc_debug) printf("------MARK PHASE STARTED------\n");
     //stack scanning
@@ -337,8 +444,8 @@ static void gc_mark(){
         end = tmp;
     }
 
-    for (uintptr_t* sp = start; sp < end; sp++) {
-        try_mark(sp);
+    for (uintptr_t* p = start; p < end; p++) {
+        try_mark(p);
     }
 
     //register scanning
@@ -355,6 +462,7 @@ static void gc_mark(){
 
 }
 
+///Perform the sweep phase, clearing non marked blocks
 static void gc_sweep(){
     if(gc_debug) printf("------SWEEP PHASE STARTED------\n");
     block_t* current = heap_head;
@@ -372,6 +480,7 @@ static void gc_sweep(){
     if(gc_debug) printf("------SWEEP PHASE ENDED------\n\n");
 }
 
+///Performs a full cycle, if gc_debug flag is active performs performance checks
 void gc_cycle(){
     if(heap_head == NULL) return;
     
