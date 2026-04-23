@@ -26,7 +26,7 @@ This is why it's **conservative** meaning it guarantees to deallocate blocks tha
 
 **DISCLAIMER**: This Garbage Collector is designed to operate exclusively on memory blocks allocated through the `gc_malloc` function. The author expressly disclaims any responsibility or liability for memory that is allocated by any other means and remains unclaimed or unmanaged. Any allocations performed with standard `malloc` or other allocation mechanisms fall outside the scope of this Garbage Collector and are not subject to its management or reclamation processes.
 
-## The allocator
+## The Allocator
 
 I know what you are thinking: "Are you kidding? You said we were building a super cool Garbage Collector, why do we need an allocator?"<br>
 And no, don't be shy, it's fine, i can feel you, we'll have to wait before we get to the GC<br>
@@ -125,11 +125,12 @@ Finally, it was time to implement the actual GC which is made of two phases:
 - **Mark phase:** where you mark active blocks
 - **Sweep phase:** where you free non marked blocks
 
-There are 3 major locations where pointers can point to heap-allocated objects:
+There are 4 major locations where pointers can point to heap-allocated objects:
 
 1. **The stack**
 2. **Registers**
-3. **The heap itself**
+3. **.data segmant**
+4. **The heap itself**
 
 ## Mark phase
 
@@ -215,11 +216,11 @@ The solution is a C function to force the OS to write all register data inside a
 ```c
 jmp_buf env;
 setjmp(env); //forces the os to write all caller register data into env
-uintptr_t* reg = (uintptr_t*)env;
+uintptr_t* start = (uintptr_t*)env;
 uintptr_t* end = (uintptr_t*)((char*)env + sizeof(env));
 
-for (; reg < end; reg++) {
-    try_mark((void*)*reg);
+for (; start < end; start++) {
+    try_mark((void*)*start);
 }
 ```
 
@@ -229,6 +230,9 @@ register void* ptr_reg asm("rbx") = gc_malloc(sizeof(int));
 ```
 
 This line stores into the `rbx` register the pointer returned by gc_malloc`. Without register scanning, the first GC cycle would clear the memory block, but with this extra piece of code, we can assure the memory is still alive.
+
+### Data segment
+Work in progress
 
 ### Heap scanning
 Oh god, another edge case... Let's see what is happening this time<br>
@@ -326,3 +330,6 @@ So when we exit a function, all variables contained in it stay written on the st
 Previously i was approximating the top of the stack so it was possible to reach past the stack pointer, finding pointers that were supposedly just been destroyed. After updating the line to find stack borders, the stack to is more prcise so this issue doesn't happen now<br> 
 Still, it's a nice and intreresting behaviour to note.
 
+### calloc and realloc
+
+### 

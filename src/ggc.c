@@ -375,7 +375,7 @@ static void gc_free_no_sanitize(block_t* block){
   * it is then UNDEFINED BEHAVIOUR and should not be done
   * @param ptr to free, if not heap allocated by gc_malloc() function will return before seg faults
   * @return true if freed correctly, otherwise false 
-  */
+*/
 bool gc_free(const void* ptr) {
     if (!ptr)
         return false;
