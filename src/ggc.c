@@ -7,6 +7,12 @@
 #include <time.h>
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 
+extern char __data_start;
+extern char _edata;
+
+extern char __bss_start;
+extern char _end;
+
 typedef struct block {
     size_t size;
    	bool free;
@@ -50,9 +56,12 @@ static inline size_t align8(const size_t s) {
     return (s + 7) & ~((size_t)7);
 }
 
-/** Prints a block, yes, that's it
-  * @param block to print
-*/
+///Prints a formatted line of text
+static inline void print_debug(char* s){
+    printf("------%s------\n", s);
+}
+
+///Prints a block, yes, that's it
 void print_block(const block_t* block){
     printf("####################\nBlock Address: %p Data Address: %p \t Data Size: %zd \t Total Size: %zd \nFree: %s \t Marked: %s \t Next: %p\n####################\n\n", 
             block, 
@@ -67,7 +76,7 @@ void print_block(const block_t* block){
 ///Prints the entire heap
 void gc_print_heap(){
     printf("Head: %p,\t End: %p\n\n", heap_head, heap_end);
-    printf("------HEAP START------\n");
+    print_debug("HEAP START");
     block_t* current = heap_head;
     while(current){
         print_block(current);
@@ -145,6 +154,13 @@ static inline bool is_out_of_heap(const void* p){
     return p < (void*) heap_head || p > heap_end;
 }
 
+/** Utility to exclude candidate pointers that are not pointer-like aligned 
+  * 
+*/
+static inline bool maybe_pointer(uintptr_t p) {
+    return (p % sizeof(void*) == 0);
+}
+
 /** Splits block if it is 8B bigger then required
   * @param block maybe too big
   * @param size you wish the block to be near to
@@ -220,7 +236,7 @@ void* gc_malloc(size_t size) {
     block_t* block = find_free_block(size);
 
     if (!block) { 
-        if(allocator_debug) printf("------EXTENDING HEAP------\n");
+        if(allocator_debug) print_debug("EXTENDING HEAP");
         block = extend_heap(size); //if find_free_block failed you can try to allocate the block extending the heap
         if (!block)                //if extend_heap failed it means the os could not allocate memory
             return NULL;           //malloc should return NULL
@@ -229,7 +245,7 @@ void* gc_malloc(size_t size) {
         try_split_block(block, size);
     }
     if(allocator_debug){
-        printf("------NEW ALLOCATED BLOCK------\n");
+        print_debug("NEW ALLOCATED BLOCK");
         print_block(block);
     } 
 
@@ -393,15 +409,24 @@ bool gc_free(const void* ptr) {
 
 static void try_mark(const uintptr_t* ptr);
 
+
+/** Scans a range of pointers calling try_mark() on each candidate
+  * @param start of the range
+  * @param end of the range
+*/
+static void scan_range(void* start, void* end) {
+    for (uintptr_t* p = start; p < (uintptr_t*)end; p++) {
+        try_mark(p);
+    }
+}
+
 /** Scans the payload of a block searching for pointers to other blocks
   * @param block to scan
 */
 static void mark_contents(const block_t* block){
     uintptr_t* start = (uintptr_t*)(block + 1);
     uintptr_t* end = (uintptr_t*)((char*)(block + 1) + block->size);
-    for (; start < end; start++) {
-        try_mark(start);
-    }
+    scan_range(start, end);
 }
 
 /** Perform sanity checks and tries to determine if a pointer to a block is valid
@@ -409,6 +434,10 @@ static void mark_contents(const block_t* block){
   * @param ptr to try mark
 */
 static void try_mark(const uintptr_t* ptr){
+    if (!maybe_pointer(*ptr)){
+        return;
+    } 
+
     if(is_out_of_heap((void*) *ptr)){
         return;
     }
@@ -431,7 +460,7 @@ static void try_mark(const uintptr_t* ptr){
 
 ///Performs the full mark phase scanning stack, heap, registers and .data segment
 static void gc_mark(){
-    if(gc_debug) printf("------MARK PHASE STARTED------\n");
+    if(gc_debug) print_debug("MARK PHASE STARTED");
     //stack scanning
     void* stack_top = __builtin_frame_address(0);
 
@@ -444,9 +473,7 @@ static void gc_mark(){
         end = tmp;
     }
 
-    for (uintptr_t* p = start; p < end; p++) {
-        try_mark(p);
-    }
+    scan_range(start, end);
 
     //register scanning
 
@@ -455,16 +482,18 @@ static void gc_mark(){
     uintptr_t* reg = (uintptr_t*)env;
     uintptr_t* reg_end = (uintptr_t*)((char*)env + sizeof(env));
 
-    for (; reg < reg_end; reg++) {
-        try_mark(reg);
-    }
+    scan_range(reg, reg_end);
+
+    // globals (.data + .bss scanning)
+    scan_range(&__data_start, &_end);
+
     if(gc_debug) printf("------MARK PHASE ENDED------\n\n");
 
 }
 
 ///Perform the sweep phase, clearing non marked blocks
 static void gc_sweep(){
-    if(gc_debug) printf("------SWEEP PHASE STARTED------\n");
+    if(gc_debug) print_debug("SWEEP PHASE STARTED");
     block_t* current = heap_head;
     while(current){
         if(!current -> free && !current -> marked){
@@ -493,7 +522,7 @@ void gc_cycle(){
 
         clock_gettime(CLOCK_MONOTONIC, &start);
 
-        if(gc_debug) printf("--------GC CYCLE STARTED--------\n");
+        if(gc_debug) print_debug("GC CYCLE STARTED");
         
         gc_mark();
 
@@ -512,7 +541,7 @@ void gc_cycle(){
             (end.tv_sec - mark.tv_sec) +
             ((end.tv_nsec - mark.tv_nsec) / 1e9);
 
-        printf("--------GC CYCLE ENDED--------\n");
+        print_debug("GC CYCLE ENDED");
 
         printf("\n--------Performance: --------\nTotal: %f\tMark: %f\t Sweep: %f\n\n", tot, mark_time, sweep_time);
     }

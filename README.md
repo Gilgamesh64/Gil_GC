@@ -81,11 +81,11 @@ typedef struct block {
     size_t size;
    	bool free;
     bool marked;
-    struct block *next;
-    struct block *prev;
+    struct block* next;
+    struct block* prev;
 } block_t;
 
-extern block_t *heap_head;
+extern block_t* heap_head;
 ```
 This allows to allocate an arbitrary amout of data and to free individual blocks without having to move memory. <br>
 The actual `malloc` is pretty straight forward: 
