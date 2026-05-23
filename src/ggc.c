@@ -1,4 +1,5 @@
 #include "ggc.h"
+#include "gc_config.h"
 #include <unistd.h>
 #include <stdio.h>
 #include <setjmp.h>
@@ -17,6 +18,8 @@ typedef struct block {
     size_t size;
    	bool free;
     bool marked;
+    bool has_finalizer;
+    bool has_finalized;
     struct block *next;
     struct block *prev;
 } block_t;
@@ -24,15 +27,6 @@ typedef struct block {
 static block_t* heap_head = NULL;
 static block_t* heap_tail = NULL;
 static void* heap_end = NULL;
-
-bool gc_debug = false;
-void gc_activate_gc_debug(){
-    gc_debug = true;
-}
-bool allocator_debug = false;
-void gc_activate_allocator_debug(){
-    allocator_debug = true;
-}
 
 ///Retrieves the stack bottom by running this function before main in order to take the max possible stack address
 static void* stack_bottom;
