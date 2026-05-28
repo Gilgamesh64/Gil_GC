@@ -83,19 +83,18 @@ void test_calloc(){
 
 int* a;
 
+void greet(void* ptr){
+    printf("Hello, %p\n", ptr);
+}
+
 int main(){
-    gc_activate_allocator_debug();
     gc_activate_gc_debug();
-    a = gc_malloc(10 * sizeof(int));
-    gc_cycle();
-    gc_print_heap();
 
+    int* a = gc_malloc(sizeof(int));
+    gc_add_finalizer(a, greet);
     a = NULL;
-    gc_cycle();
-    gc_print_heap();
 
-    a = gc_calloc(100, sizeof(int));
     gc_cycle();
-    gc_print_heap();
+
     return 0;
 }

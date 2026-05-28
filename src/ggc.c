@@ -1,5 +1,4 @@
 #include "ggc.h"
-#include "gc_config.h"
 #include <unistd.h>
 #include <stdio.h>
 #include <setjmp.h>
@@ -28,27 +27,21 @@ static block_t* heap_head = NULL;
 static block_t* heap_tail = NULL;
 static void* heap_end = NULL;
 
-///Retrieves the stack bottom by running this function before main in order to take the max possible stack address
-static void* stack_bottom;
-__attribute__((constructor)) void before_main() {
-    stack_bottom = __builtin_frame_address(0);
-    //printf("Stack bottom: %p\n", stack_bottom);
-}
+//--------------------------------------GC CONFIG--------------------------------------
 
+static bool gc_debug = false;
+static bool allocator_debug = false;
+static bool lazy_sweep;
+static bool disable_interior_pointers;
+static bool disable_depth_pointer_search;
+static bool use_manual_start;
+static long max_heap_size;
+static long starting_heap_size;
 
-/** Utility to round up the requested size to a multiple of 8 bytes (or
-  * the alignment requirements of block_t).  This helps keep the data portion
-  * of each allocation properly aligned.
-  * '(s + 7)' checks if the number goes over the current multiple of 8
-  * '~((size_t)7)' is the bit sequence: 11111000
-  * a bitwise & between any number and 11111000 erases everything under '8' making the result a multiple of 8
-  * for example s = 5, 5+7 = 12 = 00001100 & 11111000 = 00001000 = 8  
-  * @param s number to round up to 8
-  * @return the number rounded up to 8 
-*/
-static inline size_t align8(const size_t s) {
-    return (s + 7) & ~((size_t)7);
-}
+void gc_activate_gc_debug() { gc_debug = true; }
+void gc_activate_allocator_debug() { allocator_debug = true; }
+void gc_use_lazy_sweep()  {lazy_sweep = true; }
+
 
 ///Prints a formatted line of text
 static inline void print_debug(char* s){
@@ -78,6 +71,141 @@ void gc_print_heap(){
     }
     if(current == heap_head) printf("Empty heap\n");
     printf("------HEAP END------\n\n");
+}
+
+
+typedef struct finalizer_entry {
+    block_t** ptr;
+    gc_finalizer_t fn;
+    struct finalizer_entry* next;
+} finalizer_entry_t;
+
+static finalizer_entry_t* finalizers_head = NULL;
+
+void gc_print_finalizers(){
+    finalizer_entry_t* curr = finalizers_head;
+    while(curr){
+        print_block(*curr -> ptr);
+        curr = curr -> next;
+    }
+}
+
+static block_t* find_block_containing(const void* ptr);
+
+
+/** Binds a function to a heap block to be called the first time it is about to be swept
+  * Each finalizer can only run once, if you resurrect an object, the second one will not run its finalizer
+  * @param ptr to bind a function, needs to be the exact pointer
+  * @param fn to bind to the blocks, needs to take a void* as arg because it will be called passing the block's address
+  * @return true if operation was successful, false if no block was found or an error occured
+  * Activate gc_debug to show more details
+*/
+bool gc_add_finalizer(void* ptr, gc_finalizer_t fn) {
+    if(!ptr || !fn){
+        if(gc_debug) print_debug("Invald arguments for add_finalizer(ptr, func(void*))");
+        return false;
+    }
+
+    block_t* block = find_block_containing(ptr);
+    if(!block){
+        if(gc_debug) print_debug("No block found to bind a finalizer");
+        return false;
+    } 
+
+    block -> has_finalizer = true;
+
+    finalizer_entry_t* e = malloc(sizeof(finalizer_entry_t));
+    if(!e) return false;
+
+    e -> ptr = malloc(sizeof(block_t*));
+    if(!e -> ptr) return false;
+    *e -> ptr = ptr; 
+    e->fn = fn;
+
+    e->next = finalizers_head;
+    finalizers_head = e;
+
+    if(gc_debug) gc_print_finalizers();
+
+    return true;
+}
+
+
+/** Calls the finalizer corrisponding to the given ptr 
+  * @param block to call the finalizer from
+  * @return true if function call is successfull, false if no finalizer is found or something goes wrong
+*/
+bool gc_call_finalizer(block_t* block){
+    finalizer_entry_t* curr = finalizers_head;
+    while(curr){
+        if(*curr -> ptr == block){
+            curr -> fn(block);
+            block -> has_finalized = true;
+            return true;
+        }
+        curr = curr -> next;
+    }
+    return false;
+}
+
+/** Removes a finalizer from the list, should be called when freeing an object that is bound to a finalizer
+  * @param ptr bound
+  * @return true if the operation was successful
+*/
+bool gc_remove_finalizer(block_t* block){
+    if(!finalizers_head) return false;
+
+    if(*finalizers_head -> ptr == block){
+        free(finalizers_head);
+        finalizers_head = NULL;
+        return true;
+    }
+    finalizer_entry_t* curr = finalizers_head;
+    while(curr -> next){
+        if(*curr -> next -> ptr == block){
+            finalizer_entry_t* tmp = curr -> next;
+            curr -> next = curr -> next -> next;
+            free(tmp);
+            return true;
+        }
+        curr = curr -> next;
+    }
+    return false;
+}
+
+bool gc_realloc_finalizer(block_t* old, block_t* new){
+    finalizer_entry_t* curr = finalizers_head;
+    while(curr){
+        if(*curr -> ptr == old){
+            *curr -> ptr = new;
+            return true;
+        }
+        curr = curr -> next;
+    }
+    return false;
+}
+
+
+///Retrieves the stack bottom by running this function before main in order to take the max possible stack address
+static void* stack_bottom;
+__attribute__((constructor)) void before_main() {
+    stack_bottom = __builtin_frame_address(0);
+    //printf("Stack bottom: %p\n", stack_bottom);
+}
+
+
+/** Utility to round up the requested size to a multiple of 8 bytes (or
+  * the alignment requirements of block_t).  This helps keep the data portion
+  * of each allocation properly aligned.
+  * '(s + 7)' checks if the number goes over the current multiple of 8
+  * '~((size_t)7)' is the bit sequence: 11111000
+  * a bitwise & between any number and 11111000 erases everything under '8' making the result a multiple of 8
+  * for example s = 5, 5+7 = 12 = 00001100 & 11111000 = 00001000 = 8  
+  * @param s number to round up to 8
+  * @return the number rounded up to 8 
+*/
+static inline size_t align8(const size_t s) {
+    return (s + 7) & ~((size_t)7);
 }
 
 /** Requests a chunk of memory from the os
@@ -491,11 +619,18 @@ static void gc_sweep(){
     block_t* current = heap_head;
     while(current){
         if(!current -> free && !current -> marked){
-            if(gc_debug){
-                printf("SWEEPING:\n");
-                print_block(current);
+
+            if(current -> has_finalizer && !current -> has_finalized){
+                gc_call_finalizer(current);
             }
-            gc_free_no_sanitize(current);
+            else{
+                if(gc_debug){
+                    printf("SWEEPING:\n");
+                    print_block(current);
+                }
+                gc_free_no_sanitize(current);
+            }
+            
         }
         current -> marked = false;
         current = current -> next;
