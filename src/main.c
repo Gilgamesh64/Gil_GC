@@ -94,6 +94,11 @@ int main(){
     gc_add_finalizer(a, greet);
     a = NULL;
 
+    double* b = gc_malloc(sizeof(double) * 4);
+    gc_add_finalizer(b, greet);
+    b = NULL;
+
+    gc_cycle();
     gc_cycle();
 
     return 0;

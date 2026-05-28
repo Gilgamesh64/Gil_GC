@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <time.h>
+#include <pthread.h>
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 
 extern char __data_start;
@@ -75,17 +76,17 @@ void gc_print_heap(){
 
 
 typedef struct finalizer_entry {
-    block_t** ptr;
+    block_t* ptr;
     gc_finalizer_t fn;
     struct finalizer_entry* next;
 } finalizer_entry_t;
 
-static finalizer_entry_t* finalizers_head = NULL;
+static finalizer_entry_t* finalizers_head;
 
 void gc_print_finalizers(){
     finalizer_entry_t* curr = finalizers_head;
     while(curr){
-        print_block(*curr -> ptr);
+        print_block(curr -> ptr);
         curr = curr -> next;
     }
 }
@@ -117,15 +118,11 @@ bool gc_add_finalizer(void* ptr, gc_finalizer_t fn) {
     finalizer_entry_t* e = malloc(sizeof(finalizer_entry_t));
     if(!e) return false;
 
-    e -> ptr = malloc(sizeof(block_t*));
-    if(!e -> ptr) return false;
-    *e -> ptr = ptr; 
-    e->fn = fn;
+    e -> ptr = block;
+    e -> fn = fn;
 
     e->next = finalizers_head;
     finalizers_head = e;
-
-    if(gc_debug) gc_print_finalizers();
 
     return true;
 }
@@ -138,7 +135,7 @@ bool gc_add_finalizer(void* ptr, gc_finalizer_t fn) {
 bool gc_call_finalizer(block_t* block){
     finalizer_entry_t* curr = finalizers_head;
     while(curr){
-        if(*curr -> ptr == block){
+        if(curr -> ptr == block){
             curr -> fn(block);
             block -> has_finalized = true;
             return true;
@@ -155,14 +152,14 @@ bool gc_call_finalizer(block_t* block){
 bool gc_remove_finalizer(block_t* block){
     if(!finalizers_head) return false;
 
-    if(*finalizers_head -> ptr == block){
+    if(finalizers_head -> ptr == block){
         free(finalizers_head);
         finalizers_head = NULL;
         return true;
     }
     finalizer_entry_t* curr = finalizers_head;
     while(curr -> next){
-        if(*curr -> next -> ptr == block){
+        if(curr -> next -> ptr == block){
             finalizer_entry_t* tmp = curr -> next;
             curr -> next = curr -> next -> next;
             free(tmp);
@@ -176,8 +173,8 @@ bool gc_remove_finalizer(block_t* block){
 bool gc_realloc_finalizer(block_t* old, block_t* new){
     finalizer_entry_t* curr = finalizers_head;
     while(curr){
-        if(*curr -> ptr == old){
-            *curr -> ptr = new;
+        if(curr -> ptr == old){
+            curr -> ptr = new;
             return true;
         }
         curr = curr -> next;
@@ -440,7 +437,10 @@ void* gc_realloc(void* ptr, size_t new_size){
             left->next->prev = left;
 
         try_split_block(block, new_size);
+
         memmove((void*)(left + 1), ptr, block->size);
+        
+        if(block -> has_finalizer) gc_realloc_finalizer(ptr, left);
 
         return (void*)(left + 1);
     }
@@ -468,6 +468,9 @@ void* gc_realloc(void* ptr, size_t new_size){
         try_split_block(block, new_size);
 
         memmove((void*)(left + 1), ptr, block->size);
+
+        if(block -> has_finalizer) gc_realloc_finalizer(ptr, left);
+
         return (void*)(left + 1);
     }
 
@@ -504,6 +507,7 @@ static void coalesce(block_t* block) {
 */
 static void gc_free_no_sanitize(block_t* block){
     block->free = true;
+    if(block -> has_finalizer) gc_remove_finalizer(block);
     coalesce(block);
 }
 
