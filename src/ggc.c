@@ -28,20 +28,43 @@ static block_t* heap_head = NULL;
 static block_t* heap_tail = NULL;
 static void* heap_end = NULL;
 
+static size_t heap_size = 0;
+
 //--------------------------------------GC CONFIG--------------------------------------
 
-static bool gc_debug = false;
-static bool allocator_debug = false;
-static bool lazy_sweep;
-static bool disable_interior_pointers;
-static bool disable_depth_pointer_search;
-static bool use_manual_start;
-static long max_heap_size;
-static long starting_heap_size;
+static gc_debug_mode_t debug_mode = GC_DEBUG_NONE;
+static gc_cycle_mode_t cycle_mode = GC_MODE_BALANCED;
+static gc_growth_factor_t growth_factor = GC_GROW_ON_REQUEST;
+static gc_sweep_mode_t sweep_mode = GC_SWEEP_EAGER;
+static bool allow_interior_pointers = true;
+static bool disable_depth_pointer_search = false;
+static bool is_manual = false;
+static size_t max_heap_size = (size_t) - 1;
 
-void gc_activate_gc_debug() { gc_debug = true; }
-void gc_activate_allocator_debug() { allocator_debug = true; }
-void gc_use_lazy_sweep()  {lazy_sweep = true; }
+void gc_set_debug_mode(gc_debug_mode_t gc_debug_mode){
+    debug_mode = gc_debug_mode;
+}
+void gc_set_cycle_mode(gc_cycle_mode_t gc_cycle_mode){
+    cycle_mode = gc_cycle_mode;
+}
+void gc_set_growth_factor(gc_growth_factor_t gc_growth_factor){
+    growth_factor = gc_growth_factor;
+}
+void gc_set_sweep_mode(gc_sweep_mode_t gc_sweep_mode){
+    sweep_mode = gc_sweep_mode;
+}
+void gc_disable_interior_ptr(void){
+    allow_interior_pointers = false;
+}
+void gc_disable_recursive_pointer_search(void){
+    disable_depth_pointer_search = true;
+}
+void gc_manual_mode(void){
+    is_manual = true;
+}
+void gc_set_max_heap_size(size_t size){
+    max_heap_size = size;
+}
 
 
 ///Prints a formatted line of text
@@ -51,26 +74,55 @@ static inline void print_debug(char* s){
 
 ///Prints a block, yes, that's it
 void print_block(const block_t* block){
-    printf("####################\nBlock Address: %p Data Address: %p \t Data Size: %zd \t Total Size: %zd \nFree: %s \t Marked: %s \t Next: %p\n####################\n\n", 
+    printf("####################\n");
+
+    printf("Block Address: %p \t Data Address: %p \t Next: %p \n", 
             block, 
             block + 1, 
+            block->next
+        );
+    printf("Data Size: %zd \t Total Size: %zd \nFree: %s \t Marked: %s \n",
             block->size, 
             block->size + sizeof (block_t), 
             block->free? "True" : "False", 
-            block->marked ? "True" : "False", 
-            block->next);
+            block->marked ? "True" : "False"
+        );
+    if(debug_mode >= GC_DEBUG_PEDANTIC){
+        printf("Has finalizer: %s \t Has Finalized: %s \n",
+            block -> has_finalizer ? "True" : "False",
+            block -> has_finalized ? "True" : "False"
+        );
+    }
+    printf("####################\n\n");
+}
+
+static void print_block_titled(const block_t* block, char* title){
+    printf("---\n%s\n", title);
+    print_block(block);
+}
+
+static void print_error(const char* msg){
+    printf("!!!!!!\n%s!!!!!!\n", msg);
 }
 
 ///Prints the entire heap
 void gc_print_heap(){
-    printf("Head: %p,\t End: %p\n\n", heap_head, heap_end);
+    if(debug_mode >= GC_DEBUG_PEDANTIC){
+        printf("Current heap size: %zu \t Max heap size: %zu \t Head: %p,\t End: %p\n\n", 
+        heap_size, max_heap_size, heap_head, heap_end
+        ); 
+    } 
+    if(!heap_head){
+        print_error("Empty heap");
+        return;
+    } 
+
     print_debug("HEAP START");
     block_t* current = heap_head;
     while(current){
         print_block(current);
         current = current->next;
     }
-    if(current == heap_head) printf("Empty heap\n");
     printf("------HEAP END------\n\n");
 }
 
@@ -86,7 +138,7 @@ static finalizer_entry_t* finalizers_head;
 void gc_print_finalizers(){
     finalizer_entry_t* curr = finalizers_head;
     while(curr){
-        print_block(curr -> ptr);
+        print_block_titled(curr -> ptr, "Found Finalizer within:");
         curr = curr -> next;
     }
 }
@@ -103,13 +155,13 @@ static block_t* find_block_containing(const void* ptr);
 */
 bool gc_add_finalizer(void* ptr, gc_finalizer_t fn) {
     if(!ptr || !fn){
-        if(gc_debug) print_debug("Invald arguments for add_finalizer(ptr, func(void*))");
+        if(debug_mode) print_error("Invald arguments for add_finalizer(ptr, func(void*))");
         return false;
     }
 
     block_t* block = find_block_containing(ptr);
     if(!block){
-        if(gc_debug) print_debug("No block found to bind a finalizer");
+        if(debug_mode >= GC_DEBUG_BASIC) print_error("No block found to bind a finalizer");
         return false;
     } 
 
@@ -136,6 +188,9 @@ bool gc_call_finalizer(block_t* block){
     finalizer_entry_t* curr = finalizers_head;
     while(curr){
         if(curr -> ptr == block){
+            if(debug_mode >= GC_DEBUG_PARANOID){
+                print_block_titled(block, "Calling Finalizer on");
+            }
             curr -> fn(block);
             block -> has_finalized = true;
             return true;
@@ -155,6 +210,9 @@ bool gc_remove_finalizer(block_t* block){
     if(finalizers_head -> ptr == block){
         free(finalizers_head);
         finalizers_head = NULL;
+        if(debug_mode >= GC_DEBUG_PARANOID){
+            print_block_titled(block, "Removing Finalizer from");
+        }
         return true;
     }
     finalizer_entry_t* curr = finalizers_head;
@@ -163,6 +221,9 @@ bool gc_remove_finalizer(block_t* block){
             finalizer_entry_t* tmp = curr -> next;
             curr -> next = curr -> next -> next;
             free(tmp);
+            if(debug_mode >= GC_DEBUG_PARANOID){
+                print_block_titled(block, "Removing Finalizer from");
+            }   
             return true;
         }
         curr = curr -> next;
@@ -174,6 +235,11 @@ bool gc_realloc_finalizer(block_t* old, block_t* new){
     finalizer_entry_t* curr = finalizers_head;
     while(curr){
         if(curr -> ptr == old){
+            if(debug_mode >= GC_DEBUG_PARANOID){
+                print_debug("Reallocating Finalizer");
+                print_block_titled(old, "From:");
+                print_block_titled(new, "To:");
+            }
             curr -> ptr = new;
             return true;
         }
@@ -213,6 +279,15 @@ static void* request_from_os(const size_t size) {
     void* p = sbrk(0);              //asks for 0 memory to store the first address
     if (sbrk(size) == (void* ) -1)  //allocate the chunk of memory and verify its validity
         return NULL;                //Don't question '(void* ) -1' it's sbrk being wacky
+
+    if(debug_mode >= GC_DEBUG_PARANOID){
+        print_debug("Extending heap");
+        printf("by: %zu \nfrom (bytes): %zu \t to (bytes) :%zu\nfrom (ptr): %p \t to (ptr): %p\n\n", 
+            size, heap_size, heap_size + size, p, (char* ) p + size
+        );
+    }
+    heap_size += size;
+    
     return p;
 }
 
@@ -223,6 +298,7 @@ static void* request_from_os(const size_t size) {
   * @return  pointer to the first element of the newly allocated block 
 */
 static block_t* extend_heap(const size_t size) {
+    //TODO check heap growth factor
     block_t* block = request_from_os(sizeof(block_t) + size);   //header + actual size
     if (!block) return NULL;
 
@@ -255,8 +331,12 @@ static block_t* find_free_block(const size_t size) {
     block_t* current = heap_head;
 
     while (current) {
-        if (current->free && current->size >= size)
+        if (current->free && current->size >= size){
+            if(debug_mode >= GC_DEBUG_PARANOID){
+                print_block_titled(current, "Found free block:\n");
+            }
             return current;
+        }
         current = current->next;
     }
 
@@ -355,7 +435,6 @@ void* gc_malloc(size_t size) {
     block_t* block = find_free_block(size);
 
     if (!block) { 
-        if(allocator_debug) print_debug("EXTENDING HEAP");
         block = extend_heap(size); //if find_free_block failed you can try to allocate the block extending the heap
         if (!block)                //if extend_heap failed it means the os could not allocate memory
             return NULL;           //malloc should return NULL
@@ -363,9 +442,8 @@ void* gc_malloc(size_t size) {
         block->free = false;
         try_split_block(block, size);
     }
-    if(allocator_debug){
-        print_debug("NEW ALLOCATED BLOCK");
-        print_block(block);
+    if(debug_mode >= GC_DEBUG_PEDANTIC){
+        print_block_titled(block, "New allocated block:");
     } 
 
     return (void* )(block + 1);     //returns the allocated block without the header
@@ -525,7 +603,7 @@ bool gc_free(const void* ptr) {
     block_t* block = (block_t*)ptr - 1;     //retrieve block header
 
     if(!is_allocated(block)){               //TODO: make more polite
-        if(allocator_debug) printf("EROOOR TRIED TO FREE RANDOM ASS POINTER! \nPointer %p was not allocated via gc_malloc() \nYOU STOOPID\n\n", ptr);
+        if(debug_mode >= GC_DEBUG_BASIC) printf("EROOOR TRIED TO FREE RANDOM ASS POINTER! \nPointer %p was not allocated via gc_malloc() \nYOU STOOPID\n\n", ptr);
         return false;
     }
     gc_free_no_sanitize(block);
@@ -576,9 +654,8 @@ static void try_mark(const uintptr_t* ptr){
 
     if(!candidate -> marked){
         candidate -> marked = true;
-        if(gc_debug){
-            printf("MARKING:\n");
-            print_block(candidate);
+        if(debug_mode >= GC_DEBUG_BASIC){
+            print_block_titled(candidate, "MARKING:");
         }
         mark_contents(candidate);
     }
@@ -586,7 +663,7 @@ static void try_mark(const uintptr_t* ptr){
 
 ///Performs the full mark phase scanning stack, heap, registers and .data segment
 static void gc_mark(){
-    if(gc_debug) print_debug("MARK PHASE STARTED");
+    if(debug_mode >= GC_DEBUG_BASIC) print_debug("MARK PHASE STARTED");
     //stack scanning
     void* stack_top = __builtin_frame_address(0);
 
@@ -613,13 +690,13 @@ static void gc_mark(){
     // globals (.data + .bss scanning)
     scan_range(&__data_start, &_end);
 
-    if(gc_debug) printf("------MARK PHASE ENDED------\n\n");
+    if(debug_mode >= GC_DEBUG_BASIC) printf("------MARK PHASE ENDED------\n\n");
 
 }
 
 ///Perform the sweep phase, clearing non marked blocks
 static void gc_sweep(){
-    if(gc_debug) print_debug("SWEEP PHASE STARTED");
+    if(debug_mode >= GC_DEBUG_BASIC) print_debug("SWEEP PHASE STARTED");
     block_t* current = heap_head;
     while(current){
         if(!current -> free && !current -> marked){
@@ -628,9 +705,8 @@ static void gc_sweep(){
                 gc_call_finalizer(current);
             }
             else{
-                if(gc_debug){
-                    printf("SWEEPING:\n");
-                    print_block(current);
+                if(debug_mode >= GC_DEBUG_BASIC){
+                    print_block_titled(current, "SWEEPING:");
                 }
                 gc_free_no_sanitize(current);
             }
@@ -639,14 +715,14 @@ static void gc_sweep(){
         current -> marked = false;
         current = current -> next;
     }
-    if(gc_debug) printf("------SWEEP PHASE ENDED------\n\n");
+    if(debug_mode >= GC_DEBUG_BASIC) printf("------SWEEP PHASE ENDED------\n\n");
 }
 
 ///Performs a full cycle, if gc_debug flag is active performs performance checks
 void gc_cycle(){
     if(heap_head == NULL) return;
     
-    if(!gc_debug){
+    if(debug_mode < GC_DEBUG_BASIC){
         gc_mark();
         gc_sweep();
     }
@@ -655,7 +731,7 @@ void gc_cycle(){
 
         clock_gettime(CLOCK_MONOTONIC, &start);
 
-        if(gc_debug) print_debug("GC CYCLE STARTED");
+        if(debug_mode >= GC_DEBUG_BASIC) print_debug("GC CYCLE STARTED");
         
         gc_mark();
 

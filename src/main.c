@@ -88,15 +88,13 @@ void greet(void* ptr){
 }
 
 int main(){
-    gc_activate_gc_debug();
-
+    gc_set_debug_mode(GC_DEBUG_PARANOID);
     int* a = gc_malloc(sizeof(int));
     gc_add_finalizer(a, greet);
     a = NULL;
 
     double* b = gc_malloc(sizeof(double) * 4);
-    gc_add_finalizer(b, greet);
-    b = NULL;
+    //gc_add_finalizer(b, greet);
 
     gc_cycle();
     gc_cycle();
