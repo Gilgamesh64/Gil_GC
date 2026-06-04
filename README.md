@@ -6,7 +6,7 @@ This document contains a recap about this project, silly bugs, and their solutio
 
 **WARNING:** The style of this rant is **absolutely 0% formal or academic**. If you’re a teacher… well… I hope I can put a smile on your face. I promise this won’t be the “end result” of a formal report.
 
-After all that yapping, let's get right onto it.
+After all that yapping, let's get right into it.
 
 ## Goals
 
@@ -40,10 +40,10 @@ There are 2 main functions to request memory from the OS:
 1. sbrk
 2. mmap
 
-- I chose to use sbrk just because mmap felt harder and fuck it who cares
+- I chose to use `sbrk` just because `mmap` felt harder and fuck it who cares
 
-No i'm kidding, partially, mmap works wonders for large allocations while sbrk is more efficient for smaller ones, since for now optimization is not my goal, using just sbrk is fine.<br>
-In the future I'll migrate to using sbrk for small allocations and mmap for larger ones but for now it would be overkill
+No i'm kidding, partially, `mmap` works wonders for large allocations while `sbrk` is more efficient for smaller ones, since for now optimization is not my goal, using just `sbrk` is fine.<br>
+In the future I'll migrate to using `sbrk` for small allocations and `mmap` for larger ones but for now it would be overkill
 
 #### morecore function with only sbrk
 ```c
@@ -72,7 +72,7 @@ Again due to finger typing consumption just go check comments over this function
 
 We have a chunk of memory given by the OS, how should we use it? <br>
 Let's say i get 1MB of memory by the OS, the user requests 1B and i give them the whole block... not very efficient isn't it?<br>
-When the user asks for some memory we find a chunk of memory big enough for the request, if it's too big we split it and allocate only what is needed, the rest stays free. <br>
+When the user asks for some memory we find a chunk of memory big enough for the request, if it's too big we split it and allocate only what is needed, the rest stays **free**. <br>
 But then how do we connect used and free blocks? Each of them with possibly a different size? A **linked list**
 
 #### Creating the list of blocks
@@ -114,9 +114,25 @@ else:
 Since freeing is purely logical (setting a boolean), after some frees our memory will look like a sponge <br>
 To avoid that we can check if the blocks adjacent to the one we want to free are free as well: in that case we merge the two blocks. This procedure is called to `coalesce` and it allows to avoid fragmentation without moving memory.
 
+##### Best pseudo-code ever made
+```
+when freeing:
+
+    look left
+    if free:
+        join
+
+    look right
+    if free:
+        join
+```
+        
+The reason being we want to avoid having contiguous small free blocks, a single big chunk that can be later split is way better.
+
 #### No pls don't free random ass pointers
 
-Since the user is stoopid and you always have to account its stupidity I added some nice safety features, now if you try to call `gc_free` passing a pointer that was not allocated by `gc_malloc` you get a nice and lovely error message instead of a seg fault, how thoughtful of me to help the user in such a positive and non-aggressive way.
+Since the user is stoopid and you always have to account its stupidity I added some nice safety features, now if you try to call `gc_free` passing a pointer that was not allocated by `gc_malloc` you get a nice and lovely error message instead of a seg fault, how thoughtful of me to help the user in such a positive and non-aggressive way.<br>
+Don't question about this famous message
 
 ## Implementing the Garbage Collector
 
@@ -129,7 +145,7 @@ There are 4 major locations where pointers can point to heap-allocated objects:
 
 1. **The stack**
 2. **Registers**
-3. **.data segmant**
+3. **.data segment**
 4. **The heap itself**
 
 ## Mark phase
@@ -214,14 +230,17 @@ The solution is a C function to force the OS to write all register data inside a
 
 ##### setjmp
 ```c
+static void scan_range(void* start, void* end) {
+    for (uintptr_t* p = start; p < (uintptr_t*)end; p++) {
+        try_mark(p);
+    }
+}
 jmp_buf env;
 setjmp(env); //forces the os to write all caller register data into env
-uintptr_t* start = (uintptr_t*)env;
-uintptr_t* end = (uintptr_t*)((char*)env + sizeof(env));
+uintptr_t* reg = (uintptr_t*)env;
+uintptr_t* reg_end = (uintptr_t*)((char*)env + sizeof(env));
 
-for (; start < end; start++) {
-    try_mark((void*)*start);
-}
+scan_range(reg, reg_end);
 ```
 
 To test if this scanning properly works we can write something like this in our main function:
@@ -229,18 +248,40 @@ To test if this scanning properly works we can write something like this in our 
 register void* ptr_reg asm("rbx") = gc_malloc(sizeof(int));
 ```
 
-This line stores into the `rbx` register the pointer returned by gc_malloc`. Without register scanning, the first GC cycle would clear the memory block, but with this extra piece of code, we can assure the memory is still alive.
+This line stores into the `rbx` register the pointer returned by `gc_malloc`. Without register scanning, the first GC cycle would clear the memory block, but with this extra piece of code, we can assure the memory is still alive.
 
 ### Data segment
-Work in progress
+For once this was pretty linear to implement, somehow.<br>
+```c
+extern char __data_start;
+extern char _edata;
+                          //magic variables filled by the linker, don't ask me how, do I look like a linker to you?
+extern char __bss_start;
+extern char _end;
+```
+
+I just put these variables as globals, I found out these variables get filled by the `linker` when the program gets linked.<br>
+Do I really need to repeat myself on how to scan a range of pointers?<br>
+REALLY? You are such a moron, fine:
+
+#### How to scan globals for morons
+```c
+static void scan_range(void* start, void* end) {
+    for (uintptr_t* p = start; p < (uintptr_t*)end; p++) {
+        try_mark(p);
+    }
+}
+scan_range(&__data_start, &_end);
+```
 
 ### Heap scanning
 Oh god, another edge case... Let's see what is happening this time<br>
-Imagine a liked-list, it's composed by one pointer from the stack to the head of the linked-list, then each node is connected to the next one, and where is this **next** pointer located?
-Why of chourse in a location we didn't handle yet: its payload. <br><br>
+Imagine a linked-list: it has one pointer from the stack to the head of the list, and then each of the following node is connected to its successor by a `next` pointer. <br> 
+And where is this `next` pointer located?
+Why of course in a location we didn't handle yet: its payload. <br><br>
 
-When we successfully mark a block, we now have to check if its payload contains pointers to other heap allocated blocks, in that case we must free them too. <br>
-Then we recursively scan all pointers we found until we find a block that contains no pointer to blocks, then we are sure to have successfully reached the end on the list. Other data structures **shuld** work too. I will try debug this **garbage** wink wink, with other weirder data structures like graphs but it **should** work.
+When we successfully mark a block, we have to check if its payload contains pointers to other heap allocated blocks, in that case we must free them too. <br>
+Then we recursively scan all the pointers we found until we find a block that contains no pointer to blocks, in that case we are sure to have successfully reached the end on the list. Other data structures **shuld** work too. I will try debug this **garbage** wink wink, with other weirder data structures like graphs but it **should** work.
 
 #### full gc_mark implementation, more definitely not professional pseudo-code
 ```c
@@ -249,15 +290,23 @@ gc_mark(){
         try_mark(ptr)
     
     hi OS, i have this really beautiful buffer called env
-    can you please put all your registers inside env? No? Fuck off imma forcing you to do it anyway
+    can you please put all your registers inside env? No? Fuck off imma force you to do it anyway
     
     foreach ptr in env:
+        try_mark(ptr)
+
+    hey linker, since you very kindly put .data and .bss borders in my variables i can now scan them
+    foreach ptr between these ptrs:
         try_mark(ptr)
 }
 
 try_mark(ptr){
-    if ptr is not between heap border:
+    if ptr does not look like a ptr:
+        skip it, not even a pointer...
+
+    if ptr is not between heap borders:
         skip it, definitely not a good pointer
+
     else check more thoroughly and if it really is a heap pointer:
         block = block pointed by ptr
         mark block
@@ -281,16 +330,30 @@ foreach block in heap:
 ```
 
 Yes, that's it bye.<br><br><br>
-What now? It's not cool enough? You wanted some revolutionary algoritm? It's not the place for you then. <br><br><br><br><br>
+What now? It's not cool enough? You wanted some revolutionary algorithm? It's not the place for you then. <br><br><br><br><br>
 Still here? Huh, I suppose i'm gonna make it more complex just for you.<br>
 **coming soon**
 
 ## Final improvements
 
-###
-Added heap tail. <br>
-Better stack scan
-Better O(n) heap scan 
+### calloc and realloc
+In order to be a real and (obviouly) professional garbage collector I also need to provide implementations for both of them<br>
+Doing so, you can include this library into an existing project and all heap allocating functions provided by the standard library would be replaced by my implementation, thus enabling my gc to operate
+
+### Interior pointers crap
+What happens if the user does pointer arithmetic on their pointers? Spoiler: everything blows up.<br>
+Even the standard library provides no standards on what happens if you move pointers<br>
+Since i'm obviously better than those fivehead who wrote C's standard library, I will allow users to shift pointers freely<br>
+My GC wants to be as **conservative** as possible, thus having even a single edge case where the GC would break is unacceptable<br>
+This possibility comes with a cost tho so it's possible to disable it through a setting
+
+### Finalizers
+Long story for another day
+
+### Better debugging options
+There is not really much to say, I just wanted to show off how well and detailed the debugging is
+
+### Customization options 
 
 ## Silly but interesting bugs
 
@@ -329,7 +392,3 @@ Well, when a stack frame ends, all data it contained is NOT deleted, we just mov
 So when we exit a function, all variables contained in it stay written on the stack until another stack frame that overwrites them is created. For this reason calling any function after `test_out_of_scope()` makes the GC work because it overwrites both stack frames of the previous functions! <br>
 Previously i was approximating the top of the stack so it was possible to reach past the stack pointer, finding pointers that were supposedly just been destroyed. After updating the line to find stack borders, the stack to is more prcise so this issue doesn't happen now<br> 
 Still, it's a nice and intreresting behaviour to note.
-
-### calloc and realloc
-
-### 
