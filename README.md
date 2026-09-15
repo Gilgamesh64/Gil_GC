@@ -338,7 +338,9 @@ Still here? Huh, I suppose i'm gonna make it more complex just for you.<br>
 
 ### calloc and realloc
 In order to be a real and (obviouly) professional garbage collector I also need to provide implementations for both of them<br>
-Doing so, you can include this library into an existing project and all heap allocating functions provided by the standard library would be replaced by my implementation, thus enabling my gc to operate
+Doing so, you can include this library into an existing project and all heap allocating functions provided by the standard library would be replaced by my implementation, thus enabling my gc to operate <br>
+
+There is nothing really magic happening here, it's just standard calloc and realloc
 
 ### Interior pointers crap
 What happens if the user does pointer arithmetic on their pointers? Spoiler: everything blows up.<br>
@@ -347,11 +349,15 @@ Since i'm obviously better than those fivehead who wrote C's standard library, I
 My GC wants to be as **conservative** as possible, thus having even a single edge case where the GC would break is unacceptable<br>
 This possibility comes with a cost tho so it's possible to disable it through a setting
 
+```c
+int* arr = gc_malloc(sizeof(int) * 4);
+arr++; //is allowed
+
+arr = null; //arr would still be collected
+```
+
 ### Finalizers
 Long story for another day
-
-### Better debugging options
-There is not really much to say, I just wanted to show off how well and detailed the debugging is
 
 ### Customization options 
 
