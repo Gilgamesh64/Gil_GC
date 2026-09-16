@@ -33,38 +33,22 @@ static size_t heap_size = 0;
 //--------------------------------------GC CONFIG--------------------------------------
 
 static gc_debug_mode_t debug_mode = GC_DEBUG_NONE;
-static gc_cycle_mode_t cycle_mode = GC_MODE_BALANCED;
-static gc_growth_factor_t growth_factor = GC_GROW_ON_REQUEST;
-static gc_sweep_mode_t sweep_mode = GC_SWEEP_EAGER;
-static bool allow_interior_pointers = true;
-static bool disable_depth_pointer_search = false;
-static bool is_manual = false;
-static size_t max_heap_size = (size_t) - 1;
+void gc_set_debug_mode(gc_debug_mode_t gc_debug_mode){ debug_mode = gc_debug_mode; }
 
-void gc_set_debug_mode(gc_debug_mode_t gc_debug_mode){
-    debug_mode = gc_debug_mode;
-}
-void gc_set_cycle_mode(gc_cycle_mode_t gc_cycle_mode){
-    cycle_mode = gc_cycle_mode;
-}
-void gc_set_growth_factor(gc_growth_factor_t gc_growth_factor){
-    growth_factor = gc_growth_factor;
-}
-void gc_set_sweep_mode(gc_sweep_mode_t gc_sweep_mode){
-    sweep_mode = gc_sweep_mode;
-}
-void gc_disable_interior_ptr(void){
-    allow_interior_pointers = false;
-}
-void gc_disable_recursive_pointer_search(void){
-    disable_depth_pointer_search = true;
-}
-void gc_manual_mode(void){
-    is_manual = true;
-}
-void gc_set_max_heap_size(size_t size){
-    max_heap_size = size;
-}
+static gc_growth_factor_t growth_factor = GC_GROW_ON_REQUEST;
+void gc_set_growth_factor(gc_growth_factor_t gc_growth_factor){ growth_factor = gc_growth_factor; }
+
+static bool lazy_sweep = false;
+void use_lazy_sweep(void){ lazy_sweep = true; }
+
+static bool disable_interior_pointers = false;
+void gc_disable_interior_ptr(void){ disable_interior_pointers = true; }
+
+static bool disable_depth_ptr = false;
+void gc_disable_depth_ptr(void){ disable_depth_ptr = true; }
+
+static size_t max_heap_size = (size_t) - 1;
+void gc_set_max_heap_size(size_t size){ max_heap_size = size; }
 
 
 ///Prints a formatted line of text
