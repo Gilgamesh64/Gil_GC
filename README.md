@@ -141,7 +141,7 @@ Finally, it was time to implement the actual GC which is made of two phases:
 - **Mark phase:** where you mark active blocks
 - **Sweep phase:** where you free non marked blocks
 
-There are 4 major locations where pointers can point to heap-allocated objects:
+There are 4 major locations where pointers can point to heap-allocated blocks:
 
 1. **The stack**
 2. **Registers**
@@ -357,7 +357,98 @@ arr = null; //arr would still be collected
 ```
 
 ### Finalizers
-Long story for another day
+Lemme tell you a spooky story: <br>
+Once upon a time there was an object called Timmy. <br>
+Timmy was such a wholesome object, everyone loved him. <br>
+One day Timmy died (R.I.P Timmy). <br>
+Just before the GC was about to sweep him away completely, his family contacted the object necromancer. <br>
+He pointed his grey finger towards poor Timmy and shouted: look, he is not dead, I'm pointing at him!!<br>
+The GC was very confused... "You know this will serve nothing right? Timmy is dead".<br>
+As soon as the GC spoke, Timmy woke up. <br>
+"Wait... how?" Said the now extremely confused GC. <br>
+"We paid for his life insurance" Said Timmy's family. <br>
+"The first death is free" <br>
+The GC decided not to investigate and proceeded his sweeping like nothing happened. <br>
+"They ain't paying me enough for this shit, resurrecting objects now? What then? Flying pointers?
+
+##### Disclaimer
+I know C is not object oriented so techically Timmy would not be an object but an: `inhales` **heap allocated block of memory of fixed size owned and managed by the garbage collector who can reclame the block if there are no pointers pointing to it** <br>
+The story would have been really boring if I had to repeat all of that crap all the time so I just called him Object. <br>
+I could sense from a mile away you little imperative purists who were already screaming: Object and C in the same sentence!?<br>
+In this section i'm gonna call them objects anyway.  
+
+#### The idea
+As you might ask: Why should you ever want to resurrect objects? <br>
+Welp, You don't. Object resurrection is a consequence of the possobility of using a certain feature we are about to discuss<br>
+In C it often happens to manually call a destructor right before some pointer is about to be freed. <br>
+Maybe you had to close a file or a socket, so in idiomatic C you would write something like:
+```c
+some_type* foo = malloc(sizeof(some_type));
+...
+release_resources(foo);
+free(foo); 
+```
+But what happens when you add into the equation a Garbage Collector? <br>
+Now freeing the block is his responsibility so you loose control over when the pointer will go out of scope <br>
+But as we said, we have to free the block's internal resources, so how do we do that? <br>
+The idea is to attach the destructor to the memory block so when the GC is about to sweep it, it first can call the function. <br>
+These destructors, or callback functions are called Finalizers and they are used to perform some operations right before cleaning the block. <br>
+```c
+void greet(void* ptr){
+    printf("Hello, %p\n", ptr);
+}
+some_type* foo = gc_malloc(sizeof(some_type));
+gc_add_finalizer(foo, greet);
+```
+In this example the greet function will be called and only **after** that the block is freed.<br>
+In this way do don't really know when the finalizer will be called but you are sure it will be called before the block is freed.<br>
+This is such a great system, nothing will ever go wrong!
+
+#### What can go wrong
+The finalizers are functions that take as argument a single void pointer (which will be the pointer to the block) and return void.<br>
+We obviously must expose the pointer because we will probably have to perform some operations on the block.<br>
+But what happens if we do something silly? <br>
+```c
+some_type* bar = NULL;
+
+void greet(void* ptr){
+    bar = ptr;
+}
+
+void fn(){
+    some_type* foo = gc_malloc(sizeof(some_type));
+    gc_add_finalizer(foo, greet);
+}
+```
+Here foo is created and the function greed is attached to it. <br>
+Once foo goes out of scope and the GC runs, the block will have 0 pointers pointing to it. So the GC will not mark it. <br>
+Then at the sweep phase the GC will realize the block has a finalizer so will call the finalizer <br>
+The finalizer attaches a pointer to the block. <br>
+Then it will free the block since there are no pointers pointing to it... <br>
+WAIT WHAT? We just reattached a pointer? Surely you can't do that.<br>
+We now have a dangling pointer! Yeppeeeee. <br>
+How do we fix this? Welp, some GCs just suggest the programmer not to do that, kinda lame isn't it? <br>
+Soo I went on a journey searching for how to allow object resurrection to the user (it's really funny) without breaking everything. <br>
+The solution was to allow each block to call its finalizer only once and to have a tiny tiny state machine around blocks that are about to be swept.
+After calling a finalizer you preemptively keep the block alive for one gc cycle and set its flag to true<br>
+Next GC cycle, if the block was resurrected it will just be marked as usual, if not the GC will detect the block holds a finalizer but has already called it. Meaning it wasn't resurrected, so we are sure to sweep it without consequences.
+
+#### How are they implemented
+One way was to add a function pointer to each block's header, simple as that. <br>
+My main issue was that objects with a finalizers are a minority. With this idea every header would have to pay the extra memory to hold the function pointer, even if it does not point to any function. <br>
+I then moved to keeping finalizers in another struct: a linked list
+```c
+typedef struct finalizer_entry {
+    block_t* ptr;
+    gc_finalizer_t fn;
+    struct finalizer_entry* next;
+} finalizer_entry_t;
+
+static finalizer_entry_t* finalizers_head;
+```
+
+Here we can keep track of all finalizers without adding extra memory to all headers.
+
 
 ### Customization options 
 
