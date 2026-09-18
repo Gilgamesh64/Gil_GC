@@ -35,3 +35,4 @@ void gc_disable_depth_ptr(void);
 void gc_set_max_heap_size(size_t size);
 
 bool gc_add_finalizer(void* ptr, gc_finalizer_t fn);
+bool gc_add_dummy_finalizer(void* ptr);

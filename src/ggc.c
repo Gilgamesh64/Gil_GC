@@ -163,6 +163,44 @@ bool gc_add_finalizer(void* ptr, gc_finalizer_t fn) {
     return true;
 }
 
+static void dummy_finalizer(void* ptr){
+    if(debug_mode < GC_DEBUG_PEDANTIC)
+        print_error("Dummy finalizer called but debug mode is < GC_DEBUG_PEDANTIC");
+}
+
+/** Adds a finalizer that does nothing to the block
+  * \n
+  * Can be useful for debugging when is a finalizer called or if it fails
+  * GC_debug must be active and >= PEDANTIC in order to see something
+  * @param ptr of the block
+  * @return true if no error happened
+*/ 
+bool gc_add_dummy_finalizer(void* ptr) {
+    if(!ptr){
+        if(debug_mode) print_error("Null pointer inserted in function: gc_add_debug_finalizer(void* ptr)");
+        return false;
+    }
+
+    block_t* block = find_block_containing(ptr);
+    if(!block){
+        if(debug_mode >= GC_DEBUG_BASIC) print_error("No block found to bind a finalizer");
+        return false;
+    } 
+
+    block -> has_finalizer = true;
+
+    finalizer_entry_t* e = malloc(sizeof(finalizer_entry_t));
+    if(!e) return false;
+
+    e -> ptr = block;
+    e -> fn = &dummy_finalizer;
+
+    e->next = finalizers_head;
+    finalizers_head = e;
+
+    return true;
+}
+
 
 /** Calls the finalizer corrisponding to the given ptr 
   * @param block to call the finalizer from
